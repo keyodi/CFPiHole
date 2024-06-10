@@ -12,9 +12,13 @@ class App:
         self.name_prefix = f"[CFPihole]"
         self.logger = logging.getLogger("main")
         self.whitelist = self.loadWhitelist()
+        self.tldlist = self.loadTldlist()
 
     def loadWhitelist(self):
         return open("whitelist.txt", "r").read().split("\n")
+
+    def loadTldlist(self):
+        return open("tldlist.txt", "r").read().split("\n")
 
     def run(self):
         
@@ -140,12 +144,20 @@ class App:
                 break
 
         domains = []
+ 
+        # check for TLDs
+        tld = self.tldlist
+        
         for line in data.splitlines():
 
             
             # skip comments and empty lines
             if line.startswith("#") or line.startswith(";") or line == "\n" or line == "":
                 continue
+
+            # skip tld if in list
+            if not line.endswith(tuple(tld)):
+               continue
 
             if is_hosts_file:
                 # remove the ip address and the trailing newline
@@ -158,7 +170,7 @@ class App:
             else:
                 domain = line.rstrip()
 
-            #Check whitelist
+            # check whitelist
             if domain in self.whitelist:
                 continue
             
