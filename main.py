@@ -11,11 +11,11 @@ class App:
     def __init__(self):        
         self.name_prefix = f"[CFPihole]"
         self.logger = logging.getLogger("main")
-        self.whitelist = self.loadWhitelist()
+      # self.whitelist = self.loadWhitelist()
         self.tldlist = self.loadTldlist()
 
-    def loadWhitelist(self):
-        return open("whitelist.txt", "r").read().split("\n")
+    #def loadWhitelist(self):
+    #    return open("whitelist.txt", "r").read().split("\n")
 
     def loadTldlist(self):
         return open("tldlist.txt", "r").read().split("\n")
@@ -171,8 +171,8 @@ class App:
                 domain = line.rstrip()
 
             # check whitelist
-            if domain in self.whitelist:
-                continue
+            # if domain in self.whitelist:
+            #    continue
             
 
             domains.append(domain)
