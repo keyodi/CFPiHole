@@ -124,9 +124,10 @@ class App:
         with open("tmp/"+file_name, "r") as f:
             data = f.read()
 
+        # TODO: Temp fix to account for hosts or domains that contain each iteration
         # check if the file is a hosts file or a list of domain
         is_hosts_file = False
-        for ip in ["localhost", "127.0.0.1", "::1", "0.0.0.0"]:
+        for ip in ["localhost ", "127.0.0.1 ", "::1 ", "0.0.0.0 "]:
             if ip in data:
                 is_hosts_file = True
                 break
