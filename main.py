@@ -12,7 +12,21 @@ class App:
     def __init__(self):        
         self.name_prefix = f"[CFPihole]"
         self.logger = logging.getLogger("main")
+        self.whitelist = self.loadWhitelist()
         self.tldlist = self.loadTldlist()
+
+    def loadWhitelist(self):
+
+        file_path_whitelist = 'whitelist.txt'
+        
+        if os.path.exists(file_path_whitelist):
+            return open(file_path_whitelist, "r").read().split("\n")
+
+        else:
+            r = ""
+            print("\033[0;31;97m INFO: No ",file_path_whitelist, "file. Skipping...\033[0;0m")
+            return r
+
 
     def loadTldlist(self):
 
@@ -184,6 +198,10 @@ class App:
 
             else:
                 domain = line.rstrip()
+
+            # check whitelist
+            if domain in self.whitelist:
+                continue
 
 
             domains.append(domain)
