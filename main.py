@@ -12,14 +12,19 @@ class App:
     def __init__(self):        
         self.name_prefix = f"[CFPihole]"
         self.logger = logging.getLogger("main")
-      # self.whitelist = self.loadWhitelist()
         self.tldlist = self.loadTldlist()
 
-    # def loadWhitelist(self):
-    #    return open("whitelist.txt", "r").read().split("\n")
-
     def loadTldlist(self):
-        return open("tldlist.txt", "r").read().split("\n")
+
+        file_path_tld = 'tldlist.txt'
+        
+        if os.path.exists(file_path_tld):
+            return open(file_path_tld, "r").read().split("\n")
+
+        else:
+            r = ""
+            print("\033[0;31;97m INFO: No ",file_path_tld, "file. Skipping...\033[0;0m")
+            return r
 
     def run(self):
 
@@ -29,11 +34,12 @@ class App:
         except OSError as error:
             print("\033[0;31;40m ERROR: unable to create tmp folder\033[0;0m")
         
-        file_path = 'config.ini'
-        if os.path.exists(file_path):
+        file_path_config = 'config.ini'
+
+        if os.path.exists(file_path_config):
          
             config = configparser.ConfigParser()
-            config.read('config.ini')
+            config.read(file_path_config)
 
             all_domains = []
             for list in config["Lists"]:
@@ -179,10 +185,6 @@ class App:
             else:
                 domain = line.rstrip()
 
-            # check whitelist
-            # if domain in self.whitelist:
-            #    continue
-            
 
             domains.append(domain)
 
