@@ -8,58 +8,61 @@ import pandas as pd
 import os
 import time
 
+
 class App:
-    def __init__(self):        
+    def __init__(self):
         self.name_prefix = f"[CFPihole]"
         self.logger = logging.getLogger("main")
         self.whitelist = self.loadWhitelist()
         self.tldlist = self.loadTldlist()
 
     def loadWhitelist(self):
+        file_path_whitelist = "whitelist.txt"
 
-        file_path_whitelist = 'whitelist.txt'
-        
         if os.path.exists(file_path_whitelist):
             return open(file_path_whitelist, "r").read().split("\n")
 
         else:
             r = ""
-            print("\033[0;31;97m INFO: No ",file_path_whitelist, "file. Skipping...\033[0;0m")
+            print(
+                "\033[0;31;97m INFO: No ",
+                file_path_whitelist,
+                "file. Skipping...\033[0;0m",
+            )
             return r
 
-
     def loadTldlist(self):
+        file_path_tld = "tldlist.txt"
 
-        file_path_tld = 'tldlist.txt'
-        
         if os.path.exists(file_path_tld):
             return open(file_path_tld, "r").read().split("\n")
 
         else:
             r = ""
-            print("\033[0;31;97m INFO: No ",file_path_tld, "file. Skipping...\033[0;0m")
+            print(
+                "\033[0;31;97m INFO: No ",
+                file_path_tld,
+                "file. Skipping...\033[0;0m"
+            )
             return r
 
     def run(self):
-
-        #check tmp dir exists
+        # check tmp dir exists
         try:
             os.makedirs("./tmp", exist_ok=True)
         except OSError as error:
             print("\033[0;31;40m ERROR: unable to create tmp folder\033[0;0m")
-        
-        file_path_config = 'config.ini'
+
+        file_path_config = "config.ini"
 
         if os.path.exists(file_path_config):
-         
             config = configparser.ConfigParser()
             config.read(file_path_config)
 
             all_domains = []
             for list in config["Lists"]:
+                print("Setting list " + list)
 
-                print ("Setting list " +  list)
-            
                 name_prefix = f"[AdBlock-{list}]"
 
                 self.download_file(config["Lists"][list], list)
@@ -78,11 +81,10 @@ class App:
                 self.logger.warning("Lists are the same size, skipping")
 
             else:
+                # delete the policy
 
-                #delete the policy
-
-                cf_policies = cloudflare.get_firewall_policies(self.name_prefix)            
-                if len(cf_policies)>0:
+                cf_policies = cloudflare.get_firewall_policies(self.name_prefix)
+                if len(cf_policies) > 0:
                     cloudflare.delete_firewall_policy(cf_policies[0]["id"])
 
                 # delete the lists
@@ -116,7 +118,9 @@ class App:
             if len(cf_policies) == 0:
                 self.logger.info("Creating firewall policy")
 
-                cf_policies = cloudflare.create_gateway_policy(f"{self.name_prefix} Block Ads", [l["id"] for l in cf_lists])
+                cf_policies = cloudflare.create_gateway_policy(
+                    f"{self.name_prefix} Block Ads", [l["id"] for l in cf_lists]
+                )
 
             elif len(cf_policies) != 1:
                 self.logger.error("More than one firewall policy found")
@@ -126,29 +130,31 @@ class App:
             else:
                 self.logger.info("Updating firewall policy")
 
-                cloudflare.update_gateway_policy(f"{self.name_prefix} Block Ads", cf_policies[0]["id"], [l["id"] for l in cf_lists])
+                cloudflare.update_gateway_policy(
+                    f"{self.name_prefix} Block Ads",
+                    cf_policies[0]["id"],
+                    [l["id"] for l in cf_lists],
+                )
 
             self.logger.info("Done")
 
         else:
             print("\033[0;31;40m ERROR: config.ini does not exist\033[0;0m")
-            
 
     def is_valid_hostname(self, hostname):
         import re
+
         if len(hostname) > 255:
             return False
         hostname = hostname.rstrip(".")
-        allowed = re.compile(r'^[a-z0-9]([a-z0-9\-\_]{0,61}[a-z0-9])?$',re.IGNORECASE)
+        allowed = re.compile(r"^[a-z0-9]([a-z0-9\-\_]{0,61}[a-z0-9])?$", re.IGNORECASE)
         labels = hostname.split(".")
-        
+
         # the TLD must not be all-numeric
         if re.match(r"^[0-9]+$", labels[-1]):
             return False
-        
+
         return all(allowed.match(x) for x in labels)
-
-
 
     def download_file(self, url, name):
         self.logger.info(f"Downloading file from {url}")
@@ -161,32 +167,35 @@ class App:
         self.logger.info(f"File size: {path.stat().st_size}")
 
     def convert_to_domain_list(self, file_name: str):
-        with open("tmp/"+file_name, "r") as f:
+        with open("tmp/" + file_name, "r") as f:
             data = f.read()
 
         # TODO: temp fix to account for hosts or domains contained in each iteration
         # check if the file is a hosts file or a list of domain
         is_hosts_file = False
         for ip in ["localhost ", "127.0.0.1 ", "::1 ", "0.0.0.0 "]:
-           if ip in data:
-               is_hosts_file = True
-               break
+            if ip in data:
+                is_hosts_file = True
+                break
 
         domains = []
-        
+
         # check for TLDs
         tld = self.tldlist
 
         for line in data.splitlines():
-
-            
             # skip comments and empty lines
-            if line.startswith("#") or line.startswith(";") or line == "\n" or line == "":
+            if (
+                line.startswith("#")
+                or line.startswith(";")
+                or line == "\n"
+                or line == ""
+            ):
                 continue
 
             # skip tld is in List
             if not line.endswith(tuple(tld)):
-               continue
+                continue
 
             if is_hosts_file:
                 # remove the ip address and the trailing newline
@@ -203,23 +212,17 @@ class App:
             if domain in self.whitelist:
                 continue
 
-
             domains.append(domain)
 
         self.logger.info(f"Number of domains: {len(domains)}")
 
         return domains
 
-
-
     def chunk_list(self, _list: List[str], n: int):
         for i in range(0, len(_list), n):
-
             yield _list[i : i + n]
 
 
 if __name__ == "__main__":
-
-
     app = App()
     app.run()
