@@ -90,8 +90,10 @@ class App:
                 # delete the lists
                 for l in cf_lists:
                     self.logger.info(f"Deleting list {l['name']}")
+
                     # Sleep to prevent rate limit
-                    time.sleep(1)
+                    time.sleep(0.8)
+
                     cloudflare.delete_list(l["id"])
 
                 cf_lists = []
@@ -105,7 +107,7 @@ class App:
                     _list = cloudflare.create_list(list_name, chunk)
 
                     # Sleep to prevent rate limit
-                    time.sleep(1)
+                    time.sleep(0.8)
 
                     cf_lists.append(_list)
 
