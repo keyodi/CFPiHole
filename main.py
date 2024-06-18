@@ -12,6 +12,7 @@ import time
 class App:
     def __init__(self):
         self.name_prefix = f"[CFPihole]"
+        logging.basicConfig(level=logging.INFO)
         self.logger = logging.getLogger("main")
         self.whitelist = self.loadWhitelist()
         self.tldlist = self.loadTldlist()
@@ -24,14 +25,13 @@ class App:
 
         else:
             r = ""
-            print(
-                "\033[0;31;97m INFO: No ",
-                file_path_whitelist,
-                "file. Skipping...\033[0;0m",
+            self.logger.info(
+                f"\033[0;31;97m Missing {file_path_whitelist}, skipping\033[0;0m"
             )
             return r
 
     def loadTldlist(self):
+
         file_path_tld = "tldlist.txt"
 
         if os.path.exists(file_path_tld):
@@ -39,10 +39,8 @@ class App:
 
         else:
             r = ""
-            print(
-                "\033[0;31;97m INFO: No ",
-                file_path_tld,
-                "file. Skipping...\033[0;0m"
+            self.logger.info(
+                f"\033[0;31;97m Missing {file_path_tld}, skipping\033[0;0m"
             )
             return r
 
@@ -51,7 +49,9 @@ class App:
         try:
             os.makedirs("./tmp", exist_ok=True)
         except OSError as error:
-            print("\033[0;31;40m ERROR: unable to create tmp folder\033[0;0m")
+            self.logger.error(
+                f"\033[0;31;40m Unable to create tmp folder\033[0;0m"
+            )
 
         file_path_config = "config.ini"
 
@@ -141,7 +141,9 @@ class App:
             self.logger.info("Done")
 
         else:
-            print("\033[0;31;40m ERROR: config.ini does not exist\033[0;0m")
+            self.logger.error(
+                f"\033[0;31;40m {file_path_config} does not exist. Stopping...\033[0;0m"
+            )
 
     def is_valid_hostname(self, hostname):
         import re
