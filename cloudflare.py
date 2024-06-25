@@ -33,6 +33,21 @@ def get_lists(name_prefix: str):
     return [l for l in lists if l["name"].startswith(name_prefix)]
 
 
+def get_total_lists():
+    r = session.get(
+        f"https://api.cloudflare.com/client/v4/accounts/{CF_IDENTIFIER}/gateway/lists",
+    )
+
+    logger.debug(f"[get_lists] {r.status_code}")
+
+    if r.status_code != 200:
+        raise Exception("Failed to get Cloudflare lists")
+
+    lists = r.json()["result"] or []
+
+    return [l for l in lists]
+
+
 def create_list(name: str, domains: List[str]):
     r = session.post(
         f"https://api.cloudflare.com/client/v4/accounts/{CF_IDENTIFIER}/gateway/lists",
