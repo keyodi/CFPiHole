@@ -49,9 +49,7 @@ class App:
         try:
             os.makedirs("./tmp", exist_ok=True)
         except OSError as error:
-            self.logger.error(
-                f"\033[0;31;40m Unable to create tmp folder\033[0;0m"
-            )
+            self.logger.error(f"\033[0;31;40m Unable to create tmp folder\033[0;0m")
 
         file_path_config = "config.ini"
 
@@ -74,7 +72,15 @@ class App:
             # check if the list is already in Cloudflare
             cf_lists = cloudflare.get_lists(self.name_prefix)
 
-            self.logger.info(f"Number of lists in Cloudflare: {len(cf_lists)}")
+            # get total lists is already in Cloudflare
+            total_cf_lists = cloudflare.get_total_lists()
+
+            # additional lists created outside of CFPihole
+            diff_cf_lists = len(total_cf_lists) - len(cf_lists)
+
+            self.logger.info(f"Number of CFPiHole lists in Cloudflare: {len(cf_lists)}")
+
+            self.logger.info(f"Additional lists in Cloudflare: {diff_cf_lists}")
 
             # compare the lists size
             if len(unique_domains) == sum([l["count"] for l in cf_lists]):
@@ -91,7 +97,7 @@ class App:
                 for l in cf_lists:
                     self.logger.info(f"Deleting list {l['name']}")
 
-                    # Sleep to prevent rate limit
+                    # sleep to prevent rate limit
                     time.sleep(0.8)
 
                     cloudflare.delete_list(l["id"])
@@ -100,16 +106,25 @@ class App:
 
                 # chunk the domains into lists of 1000 and create them
                 for chunk in self.chunk_list(unique_domains, 1000):
-                    list_name = f"{self.name_prefix} {len(cf_lists) + 1}"
 
-                    self.logger.info(f"Creating list {list_name}")
+                    # cloudflare free allows a max of 300 lists
+                    if (len(cf_lists) + diff_cf_lists) != 300:
+                        list_name = f"{self.name_prefix} {len(cf_lists) + 1}"
 
-                    _list = cloudflare.create_list(list_name, chunk)
+                        self.logger.info(f"Creating list {list_name}")
 
-                    # Sleep to prevent rate limit
-                    time.sleep(0.8)
+                        _list = cloudflare.create_list(list_name, chunk)
 
-                    cf_lists.append(_list)
+                        # sleep to prevent rate limit
+                        time.sleep(0.8)
+
+                        cf_lists.append(_list)
+
+                    else:
+                        self.logger.warning(
+                            f"\033[0;33m Max of 300 lists allowed. Select smaller blocklists, stopping\033[0;0m"
+                        )
+                        break
 
             # get the gateway policies
             cf_policies = cloudflare.get_firewall_policies(self.name_prefix)
@@ -142,7 +157,7 @@ class App:
 
         else:
             self.logger.error(
-                f"\033[0;31;40m {file_path_config} does not exist. Stopping...\033[0;0m"
+                f"\033[0;31;40m {file_path_config} does not exist, stopping\033[0;0m"
             )
 
     def is_valid_hostname(self, hostname):
