@@ -11,38 +11,40 @@ import time
 
 class App:
     def __init__(self):
-        self.name_prefix = f"[CFPihole]"
+        # Configure logging
         logging.basicConfig(level=logging.INFO)
         self.logger = logging.getLogger("main")
+
+        # Define file paths
+        self.file_path_whitelist = "whitelist.txt"
+        self.file_path_tld = "tldlist.txt"
+        self.file_path_config = "config.ini"
+
+        self.name_prefix = f"[CFPihole]"
         self.whitelist = self.loadWhitelist()
         self.tldlist = self.loadTldlist()
 
     def loadWhitelist(self):
-        file_path_whitelist = "whitelist.txt"
 
-        if os.path.exists(file_path_whitelist):
-            return open(file_path_whitelist, "r").read().split("\n")
+        if os.path.exists(self.file_path_whitelist):
+            return open(self.file_path_whitelist, "r").read().split("\n")
 
         else:
-            r = ""
             self.logger.info(
-                f"\033[0;31;97m Missing {file_path_whitelist}, skipping\033[0;0m"
+                f"\033[0;31;97m Missing {self.file_path_whitelist}, skipping\033[0;0m"
             )
-            return r
+            return
 
     def loadTldlist(self):
 
-        file_path_tld = "tldlist.txt"
-
-        if os.path.exists(file_path_tld):
-            return open(file_path_tld, "r").read().split("\n")
+        if os.path.exists(self.file_path_tld):
+            return open(self.file_path_tld, "r").read().split("\n")
 
         else:
-            r = ""
             self.logger.info(
-                f"\033[0;31;97m Missing {file_path_tld}, skipping\033[0;0m"
+                f"\033[0;31;97m Missing {self.file_path_tld}, skipping\033[0;0m"
             )
-            return r
+            return
 
     def run(self):
         # check tmp dir exists
@@ -51,11 +53,9 @@ class App:
         except OSError as error:
             self.logger.error(f"\033[0;31;40m Unable to create tmp folder\033[0;0m")
 
-        file_path_config = "config.ini"
-
-        if os.path.exists(file_path_config):
+        if os.path.exists(self.file_path_config):
             config = configparser.ConfigParser()
-            config.read(file_path_config)
+            config.read(self.file_path_config)
 
             all_domains = []
             for list in config["Lists"]:
@@ -157,7 +157,7 @@ class App:
 
         else:
             self.logger.error(
-                f"\033[0;31;40m {file_path_config} does not exist, stopping\033[0;0m"
+                f"\033[0;31;40m {self.file_path_config} does not exist, stopping\033[0;0m"
             )
 
     def is_valid_hostname(self, hostname):
@@ -199,9 +199,6 @@ class App:
 
         domains = []
 
-        # check for TLDs
-        tld = self.tldlist
-
         for line in data.splitlines():
             # skip comments and empty lines
             if (
@@ -213,7 +210,7 @@ class App:
                 continue
 
             # skip tld is in List
-            if not line.endswith(tuple(tld)):
+            if not line.endswith(tuple(self.tldlist)):
                 continue
 
             if is_hosts_file:
