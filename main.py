@@ -4,7 +4,6 @@ from typing import List
 import requests
 import cloudflare
 import configparser
-import pandas as pd
 import os
 import time
 
@@ -67,7 +66,10 @@ class App:
                 domains = self.convert_to_domain_list(list)
                 all_domains = all_domains + domains
 
-            unique_domains = pd.unique(all_domains)
+            unique_domains = set(all_domains)
+            
+            self.logger.info(f"Total count of unique domains in list: {len(unique_domains)}")
+            self.logger.info(f"Total lists to create: {round(len(unique_domains)/1000, 0)}")
 
             # check if the list is already in Cloudflare
             cf_lists = cloudflare.get_lists(self.name_prefix)
