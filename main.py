@@ -11,38 +11,40 @@ import time
 
 class App:
     def __init__(self):
-        self.name_prefix = f"[CFPihole]"
+        # Configure logging
         logging.basicConfig(level=logging.INFO)
         self.logger = logging.getLogger("main")
+
+        # Define file paths
+        self.file_path_whitelist = "whitelist.txt"
+        self.file_path_tld = "tldlist.txt"
+        self.file_path_config = "config.ini"
+
+        self.name_prefix = f"[CFPihole]"
         self.whitelist = self.loadWhitelist()
         self.tldlist = self.loadTldlist()
 
     def loadWhitelist(self):
-        file_path_whitelist = "whitelist.txt"
 
-        if os.path.exists(file_path_whitelist):
-            return open(file_path_whitelist, "r").read().split("\n")
+        if os.path.exists(self.file_path_whitelist):
+            return open(self.file_path_whitelist, "r").read().split("\n")
 
         else:
-            r = ""
             self.logger.info(
-                f"\033[0;31;97m Missing {file_path_whitelist}, skipping\033[0;0m"
+                f"\033[0;31;97m Missing {self.file_path_whitelist}, skipping\033[0;0m"
             )
-            return r
+            return
 
     def loadTldlist(self):
 
-        file_path_tld = "tldlist.txt"
-
-        if os.path.exists(file_path_tld):
-            return open(file_path_tld, "r").read().split("\n")
+        if os.path.exists(self.file_path_tld):
+            return open(self.file_path_tld, "r").read().split("\n")
 
         else:
-            r = ""
             self.logger.info(
-                f"\033[0;31;97m Missing {file_path_tld}, skipping\033[0;0m"
+                f"\033[0;31;97m Missing {self.file_path_tld}, skipping\033[0;0m"
             )
-            return r
+            return
 
     def run(self):
         # check tmp dir exists
@@ -51,23 +53,25 @@ class App:
         except OSError as error:
             self.logger.error(f"\033[0;31;40m Unable to create tmp folder\033[0;0m")
 
-        file_path_config = "config.ini"
-
-        if os.path.exists(file_path_config):
+        if os.path.exists(self.file_path_config):
             config = configparser.ConfigParser()
-            config.read(file_path_config)
+            config.read(self.file_path_config)
 
             all_domains = []
             for list in config["Lists"]:
                 print("Setting list " + list)
 
-                name_prefix = f"[AdBlock-{list}]"
-
                 self.download_file(config["Lists"][list], list)
                 domains = self.convert_to_domain_list(list)
                 all_domains = all_domains + domains
 
-            unique_domains = pd.unique(all_domains)
+            unique_domains = pd.Series(all_domains).unique()
+            total_new_lists = round(len(unique_domains) / 1000)
+
+            self.logger.info(
+                f"Total count of unique domains in list: {len(unique_domains)}"
+            )
+            self.logger.info(f"Total lists to create: {total_new_lists}")
 
             # check if the list is already in Cloudflare
             cf_lists = cloudflare.get_lists(self.name_prefix)
@@ -86,9 +90,14 @@ class App:
             if len(unique_domains) == sum([l["count"] for l in cf_lists]):
                 self.logger.warning("Lists are the same size, skipping")
 
+            # check to that lists do not exceed 300
+            elif (total_new_lists + diff_cf_lists) > 300:
+                self.logger.warning(
+                    f"\033[0;33m Max of 300 lists allowed. Select smaller blocklists, stopping\033[0;0m"
+                )
+
             else:
                 # delete the policy
-
                 cf_policies = cloudflare.get_firewall_policies(self.name_prefix)
                 if len(cf_policies) > 0:
                     cloudflare.delete_firewall_policy(cf_policies[0]["id"])
@@ -106,25 +115,16 @@ class App:
 
                 # chunk the domains into lists of 1000 and create them
                 for chunk in self.chunk_list(unique_domains, 1000):
+                    list_name = f"{self.name_prefix} {len(cf_lists) + 1}"
 
-                    # cloudflare free allows a max of 300 lists
-                    if (len(cf_lists) + diff_cf_lists) != 300:
-                        list_name = f"{self.name_prefix} {len(cf_lists) + 1}"
+                    self.logger.info(f"Creating list {list_name}")
 
-                        self.logger.info(f"Creating list {list_name}")
+                    _list = cloudflare.create_list(list_name, chunk)
 
-                        _list = cloudflare.create_list(list_name, chunk)
+                    # sleep to prevent rate limit
+                    time.sleep(0.8)
 
-                        # sleep to prevent rate limit
-                        time.sleep(0.8)
-
-                        cf_lists.append(_list)
-
-                    else:
-                        self.logger.warning(
-                            f"\033[0;33m Max of 300 lists allowed. Select smaller blocklists, stopping\033[0;0m"
-                        )
-                        break
+                    cf_lists.append(_list)
 
             # get the gateway policies
             cf_policies = cloudflare.get_firewall_policies(self.name_prefix)
@@ -157,7 +157,7 @@ class App:
 
         else:
             self.logger.error(
-                f"\033[0;31;40m {file_path_config} does not exist, stopping\033[0;0m"
+                f"\033[0;31;40m {self.file_path_config} does not exist, stopping\033[0;0m"
             )
 
     def is_valid_hostname(self, hostname):
@@ -199,9 +199,6 @@ class App:
 
         domains = []
 
-        # check for TLDs
-        tld = self.tldlist
-
         for line in data.splitlines():
             # skip comments and empty lines
             if (
@@ -213,7 +210,7 @@ class App:
                 continue
 
             # skip tld is in List
-            if not line.endswith(tuple(tld)):
+            if not line.endswith(tuple(self.tldlist)):
                 continue
 
             if is_hosts_file:
