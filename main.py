@@ -61,13 +61,17 @@ class App:
             for list in config["Lists"]:
                 print("Setting list " + list)
 
-                name_prefix = f"[AdBlock-{list}]"
-
                 self.download_file(config["Lists"][list], list)
                 domains = self.convert_to_domain_list(list)
                 all_domains = all_domains + domains
 
-            unique_domains = pd.unique(all_domains)
+            unique_domains = pd.Series(all_domains).unique()
+            total_new_lists = round(len(unique_domains) / 1000)
+
+            self.logger.info(
+                f"Total count of unique domains in list: {len(unique_domains)}"
+            )
+            self.logger.info(f"Total lists to create: {total_new_lists}")
 
             # check if the list is already in Cloudflare
             cf_lists = cloudflare.get_lists(self.name_prefix)
@@ -86,9 +90,14 @@ class App:
             if len(unique_domains) == sum([l["count"] for l in cf_lists]):
                 self.logger.warning("Lists are the same size, skipping")
 
+            # check to that lists do not exceed 300
+            elif (total_new_lists + diff_cf_lists) > 300:
+                self.logger.warning(
+                    f"\033[0;33m Max of 300 lists allowed. Select smaller blocklists, stopping\033[0;0m"
+                )
+
             else:
                 # delete the policy
-
                 cf_policies = cloudflare.get_firewall_policies(self.name_prefix)
                 if len(cf_policies) > 0:
                     cloudflare.delete_firewall_policy(cf_policies[0]["id"])
@@ -106,25 +115,16 @@ class App:
 
                 # chunk the domains into lists of 1000 and create them
                 for chunk in self.chunk_list(unique_domains, 1000):
+                    list_name = f"{self.name_prefix} {len(cf_lists) + 1}"
 
-                    # cloudflare free allows a max of 300 lists
-                    if (len(cf_lists) + diff_cf_lists) != 300:
-                        list_name = f"{self.name_prefix} {len(cf_lists) + 1}"
+                    self.logger.info(f"Creating list {list_name}")
 
-                        self.logger.info(f"Creating list {list_name}")
+                    _list = cloudflare.create_list(list_name, chunk)
 
-                        _list = cloudflare.create_list(list_name, chunk)
+                    # sleep to prevent rate limit
+                    time.sleep(0.8)
 
-                        # sleep to prevent rate limit
-                        time.sleep(0.8)
-
-                        cf_lists.append(_list)
-
-                    else:
-                        self.logger.warning(
-                            f"\033[0;33m Max of 300 lists allowed. Select smaller blocklists, stopping\033[0;0m"
-                        )
-                        break
+                    cf_lists.append(_list)
 
             # get the gateway policies
             cf_policies = cloudflare.get_firewall_policies(self.name_prefix)
