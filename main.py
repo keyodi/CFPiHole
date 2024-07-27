@@ -30,7 +30,7 @@ class App:
             return open(self.file_path_whitelist, "r").read().split("\n")
 
         else:
-            self.logger.info(
+            self.logger.warning(
                 f"\033[0;31;97m Missing {self.file_path_whitelist}, skipping\033[0;0m"
             )
             return
@@ -41,7 +41,7 @@ class App:
             return open(self.file_path_tld, "r").read().split("\n")
 
         else:
-            self.logger.info(
+            self.logger.warning(
                 f"\033[0;31;97m Missing {self.file_path_tld}, skipping\033[0;0m"
             )
             return
@@ -88,9 +88,11 @@ class App:
 
             # compare the lists size
             if len(unique_domains) == sum([l["count"] for l in cf_lists]):
-                self.logger.warning("Lists are the same size, skipping")
+                self.logger.warning(
+                    f"\033[0;33m Lists are the same size, stopping\033[0;0m"
+                )
 
-            # check to that lists do not exceed 300
+            # check total lists do not exceed 300
             elif (total_new_lists + diff_cf_lists) > 300:
                 self.logger.warning(
                     f"\033[0;33m Max of 300 lists allowed. Select smaller blocklists, stopping\033[0;0m"
@@ -102,58 +104,62 @@ class App:
                 if len(cf_policies) > 0:
                     cloudflare.delete_firewall_policy(cf_policies[0]["id"])
 
+                self.logger.info("Deleting lists, please wait")
+
                 # delete the lists
                 for l in cf_lists:
-                    self.logger.info(f"Deleting list {l['name']}")
+                    self.logger.debug(f"Deleting list {l['name']}")
 
                     # sleep to prevent rate limit
-                    time.sleep(0.8)
+                    #time.sleep(0.8)
 
                     cloudflare.delete_list(l["id"])
 
                 cf_lists = []
 
+                self.logger.info("Creating lists, please wait")
+
                 # chunk the domains into lists of 1000 and create them
                 for chunk in self.chunk_list(unique_domains, 1000):
                     list_name = f"{self.name_prefix} {len(cf_lists) + 1}"
 
-                    self.logger.info(f"Creating list {list_name}")
+                    self.logger.debug(f"Creating list {list_name}")
 
                     _list = cloudflare.create_list(list_name, chunk)
 
                     # sleep to prevent rate limit
-                    time.sleep(0.8)
+                    #time.sleep(0.8)
 
                     cf_lists.append(_list)
 
-            # get the gateway policies
-            cf_policies = cloudflare.get_firewall_policies(self.name_prefix)
+                # get the gateway policies
+                cf_policies = cloudflare.get_firewall_policies(self.name_prefix)
 
-            self.logger.info(f"Number of policies in Cloudflare: {len(cf_policies)}")
+                self.logger.info(f"Number of policies in Cloudflare: {len(cf_policies)}")
 
-            # setup the gateway policy
-            if len(cf_policies) == 0:
-                self.logger.info("Creating firewall policy")
+                # setup the gateway policy
+                if len(cf_policies) == 0:
+                    self.logger.info("Creating firewall policy")
 
-                cf_policies = cloudflare.create_gateway_policy(
-                    f"{self.name_prefix} Block Ads", [l["id"] for l in cf_lists]
-                )
+                    cf_policies = cloudflare.create_gateway_policy(
+                        f"{self.name_prefix} Block Ads", [l["id"] for l in cf_lists]
+                    )
 
-            elif len(cf_policies) != 1:
-                self.logger.error("More than one firewall policy found")
+                elif len(cf_policies) != 1:
+                    self.logger.error("More than one firewall policy found")
 
-                raise Exception("More than one firewall policy found")
+                    raise Exception("More than one firewall policy found")
 
-            else:
-                self.logger.info("Updating firewall policy")
+                else:
+                    self.logger.info("Updating firewall policy")
 
-                cloudflare.update_gateway_policy(
-                    f"{self.name_prefix} Block Ads",
-                    cf_policies[0]["id"],
-                    [l["id"] for l in cf_lists],
-                )
+                    cloudflare.update_gateway_policy(
+                        f"{self.name_prefix} Block Ads",
+                        cf_policies[0]["id"],
+                        [l["id"] for l in cf_lists],
+                  )
 
-            self.logger.info("Done")
+                self.logger.info("Done")
 
         else:
             self.logger.error(
