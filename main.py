@@ -69,9 +69,9 @@ class App:
             total_new_lists = round(len(unique_domains) / 1000)
 
             self.logger.info(
-                f"Total count of unique domains in list: {len(unique_domains)}"
+                f"Total count of unique domains in list:\033[92m {len(unique_domains)}\033[0;0m"
             )
-            self.logger.info(f"Total lists to create: {total_new_lists}")
+            self.logger.info(f"Total lists to create:\033[92m {total_new_lists}\033[0;0m")
 
             # check if the list is already in Cloudflare
             cf_lists = cloudflare.get_lists(self.name_prefix)
@@ -111,7 +111,7 @@ class App:
                     self.logger.debug(f"Deleting list {l['name']}")
 
                     # sleep to prevent rate limit
-                    #time.sleep(0.8)
+                    time.sleep(1.0)
 
                     cloudflare.delete_list(l["id"])
 
@@ -128,7 +128,7 @@ class App:
                     _list = cloudflare.create_list(list_name, chunk)
 
                     # sleep to prevent rate limit
-                    #time.sleep(0.8)
+                    time.sleep(1.0)
 
                     cf_lists.append(_list)
 
@@ -159,7 +159,7 @@ class App:
                         [l["id"] for l in cf_lists],
                   )
 
-                self.logger.info("Done")
+                self.logger.info(f"\033[92m Done\033[0;0m")
 
         else:
             self.logger.error(
