@@ -22,37 +22,34 @@ class App:
         self.file_path_config = "config.ini"
 
         self.name_prefix = f"[CFPihole]"
-        self.whitelist = self.loadWhitelist()
-        self.tldlist = self.loadTldlist()
+        self.whitelist = self.load_whitelist()
+        self.tldlist = self.load_tldlist()
 
-    def loadWhitelist(self):
-
+    def load_whitelist(self):
+        # read list of domains to exclude from lists
         if os.path.exists(self.file_path_whitelist):
-            return open(self.file_path_whitelist, "r").read().split("\n")
-
+            with open(self.file_path_whitelist, "r") as file:
+                return file.read().splitlines()
         else:
             self.logger.warning(
-                f"\033[0;31;97m Missing {self.file_path_whitelist}, skipping\033[0;0m"
-            )
-            return
+                f"\033[0;31;97m Missing {self.file_path_whitelist}, skipping\033[0;0m")
+            return []
 
-    def loadTldlist(self):
 
+    def load_tldlist(self):
+        # read list of tld domains
         if os.path.exists(self.file_path_tld):
-            return open(self.file_path_tld, "r").read().split("\n")
-
+            with open(self.file_path_tld, "r") as file:
+                return file.read().splitlines()
         else:
             self.logger.warning(
                 f"\033[0;31;97m Missing {self.file_path_tld}, skipping\033[0;0m"
             )
-            return
+            return []
 
     def run(self):
-        # check tmp dir exists
-        try:
-            os.makedirs("./tmp", exist_ok=True)
-        except OSError as error:
-            self.logger.error(f"\033[0;31;40m Unable to create tmp folder\033[0;0m")
+        # Ensure tmp directory exists
+        os.makedirs("./tmp", exist_ok=True)
 
         if os.path.exists(self.file_path_config):
             config = configparser.ConfigParser()
@@ -60,7 +57,7 @@ class App:
 
             all_domains = []
             for list in config["Lists"]:
-                print("Setting list " + list)
+                self.logger.debug(f"Setting list " + list)
 
                 self.download_file(config["Lists"][list], list)
                 domains = self.convert_to_domain_list(list)
