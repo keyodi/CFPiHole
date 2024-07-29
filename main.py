@@ -7,6 +7,7 @@ import configparser
 import pandas as pd
 import os
 import time
+from math import ceil
 
 
 class App:
@@ -65,8 +66,10 @@ class App:
                 domains = self.convert_to_domain_list(list)
                 all_domains = all_domains + domains
 
+            self.logger.debug(f"Total not unique domains:\033[92m {len(all_domains)}\033[0;0m")
+
             unique_domains = pd.Series(all_domains).unique()
-            total_new_lists = round(len(unique_domains) / 1000)
+            total_new_lists = ceil(len(unique_domains) / 1000)
 
             self.logger.info(
                 f"Total count of unique domains in list:\033[92m {len(unique_domains)}\033[0;0m"
@@ -111,7 +114,7 @@ class App:
                     self.logger.debug(f"Deleting list {l['name']}")
 
                     # sleep to prevent rate limit
-                    time.sleep(1.0)
+                    time.sleep(2.0)
 
                     cloudflare.delete_list(l["id"])
 
@@ -128,7 +131,7 @@ class App:
                     _list = cloudflare.create_list(list_name, chunk)
 
                     # sleep to prevent rate limit
-                    time.sleep(1.0)
+                    time.sleep(2.0)
 
                     cf_lists.append(_list)
 
