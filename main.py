@@ -4,7 +4,6 @@ from typing import List
 import requests
 import cloudflare
 import configparser
-import pandas as pd
 import os
 import time
 from math import ceil
@@ -32,9 +31,9 @@ class App:
                 return file.read().splitlines()
         else:
             self.logger.warning(
-                f"\033[0;31;97m Missing {self.file_path_whitelist}, skipping\033[0;0m")
+                f"\033[0;31;97m Missing {self.file_path_whitelist}, skipping\033[0;0m"
+            )
             return []
-
 
     def load_tldlist(self):
         # read list of tld domains
@@ -56,22 +55,26 @@ class App:
             config.read(self.file_path_config)
 
             all_domains = []
-            for list in config["Lists"]:
-                self.logger.debug(f"Setting list " + list)
+            for domain_list in config["Lists"]:
+                self.logger.debug(f"Setting list " + domain_list)
 
-                self.download_file(config["Lists"][list], list)
-                domains = self.convert_to_domain_list(list)
+                self.download_file(config["Lists"][domain_list], domain_list)
+                domains = self.convert_to_domain_list(domain_list)
                 all_domains = all_domains + domains
 
-            self.logger.debug(f"Total not unique domains:\033[92m {len(all_domains)}\033[0;0m")
+            self.logger.debug(
+                f"Total not unique domains:\033[92m {len(all_domains)}\033[0;0m"
+            )
 
-            unique_domains = pd.Series(all_domains).unique()
+            unique_domains = list(set(all_domains))
             total_new_lists = ceil(len(unique_domains) / 1000)
 
             self.logger.info(
                 f"Total count of unique domains in list:\033[92m {len(unique_domains)}\033[0;0m"
             )
-            self.logger.info(f"Total lists to create:\033[92m {total_new_lists}\033[0;0m")
+            self.logger.info(
+                f"Total lists to create:\033[92m {total_new_lists}\033[0;0m"
+            )
 
             # check if the list is already in Cloudflare
             cf_lists = cloudflare.get_lists(self.name_prefix)
@@ -135,7 +138,9 @@ class App:
                 # get the gateway policies
                 cf_policies = cloudflare.get_firewall_policies(self.name_prefix)
 
-                self.logger.info(f"Number of policies in Cloudflare: {len(cf_policies)}")
+                self.logger.info(
+                    f"Number of policies in Cloudflare: {len(cf_policies)}"
+                )
 
                 # setup the gateway policy
                 if len(cf_policies) == 0:
@@ -157,7 +162,7 @@ class App:
                         f"{self.name_prefix} Block Ads",
                         cf_policies[0]["id"],
                         [l["id"] for l in cf_lists],
-                  )
+                    )
 
                 self.logger.info(f"\033[92m Done\033[0;0m")
 
