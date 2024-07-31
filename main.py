@@ -1,11 +1,11 @@
+import os
 import logging
-import pathlib
-from typing import List
 import requests
 import cloudflare
 import configparser
-import os
 import time
+from pathlib import Path
+from typing import List
 from math import ceil
 
 
@@ -76,11 +76,8 @@ class App:
                 f"Total lists to create:\033[92m {total_new_lists}\033[0;0m"
             )
 
-            # check if the list is already in Cloudflare
-            cf_lists = cloudflare.get_lists(self.name_prefix)
-
-            # get total lists is already in Cloudflare
-            total_cf_lists = cloudflare.get_total_lists()
+            # count of lists in Cloudflare
+            cf_lists, total_cf_lists = cloudflare.get_lists(self.name_prefix)
 
             # additional lists created outside of CFPihole
             diff_cf_lists = len(total_cf_lists) - len(cf_lists)
@@ -114,7 +111,7 @@ class App:
                     self.logger.debug(f"Deleting list {l['name']}")
 
                     # sleep to prevent rate limit
-                    time.sleep(2.0)
+                    time.sleep(1.5)
 
                     cloudflare.delete_list(l["id"])
 
@@ -131,7 +128,7 @@ class App:
                     _list = cloudflare.create_list(list_name, chunk)
 
                     # sleep to prevent rate limit
-                    time.sleep(2.0)
+                    time.sleep(1.5)
 
                     cf_lists.append(_list)
 
@@ -191,7 +188,7 @@ class App:
 
         r = requests.get(url, allow_redirects=True)
 
-        path = pathlib.Path("tmp/" + name)
+        path = Path("tmp/" + name)
         open(path, "wb").write(r.content)
 
         self.logger.info(f"File size: {path.stat().st_size}")
