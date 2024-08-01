@@ -2,6 +2,7 @@ import os
 import logging
 import requests
 import cloudflare
+import tld
 import configparser
 import time
 from pathlib import Path
@@ -20,7 +21,7 @@ class App:
         self.file_path_tld = "tldlist.txt"
         self.file_path_config = "config.ini"
 
-        self.name_prefix = f"[CFPihole]"
+        self.name_prefix = f"[CFPihole] Block Ads"
         self.whitelist = self.load_whitelist()
         self.tldlist = self.load_tldlist()
 
@@ -39,7 +40,17 @@ class App:
         # read list of tld domains
         if os.path.exists(self.file_path_tld):
             with open(self.file_path_tld, "r") as file:
-                return file.read().splitlines()
+                # read first character
+                first_char = file.read(1)
+                if first_char:
+                    app = tld.App()
+                    app.run()
+
+                    return file.read().splitlines()
+                else:
+                    self.logger.info(f"\033[0;31;97m tdlist.txt is empty\033[0;0m")
+
+                    return []
         else:
             self.logger.warning(
                 f"\033[0;31;97m Missing {self.file_path_tld}, skipping\033[0;0m"
@@ -144,7 +155,7 @@ class App:
                     self.logger.info("Creating firewall policy")
 
                     cf_policies = cloudflare.create_gateway_policy(
-                        f"{self.name_prefix} Block Ads", [l["id"] for l in cf_lists]
+                        f"{self.name_prefix}", [l["id"] for l in cf_lists]
                     )
 
                 elif len(cf_policies) != 1:
@@ -156,7 +167,7 @@ class App:
                     self.logger.info("Updating firewall policy")
 
                     cloudflare.update_gateway_policy(
-                        f"{self.name_prefix} Block Ads",
+                        f"{self.name_prefix}",
                         cf_policies[0]["id"],
                         [l["id"] for l in cf_lists],
                     )
@@ -218,7 +229,7 @@ class App:
                 continue
 
             # skip tld is in List
-            if not line.endswith(tuple(self.tldlist)):
+            if len(self.tldlist) and not line.endswith(tuple(self.tldlist)):
                 continue
 
             if is_hosts_file:

@@ -7,6 +7,7 @@ logger = logging.getLogger("cloudflare")
 
 
 from dotenv import load_dotenv
+
 load_dotenv()
 
 CF_API_TOKEN = os.getenv("CF_API_TOKEN") or os.environ.get("CF_API_TOKEN")
@@ -48,7 +49,7 @@ def create_list(name: str, domains: List[str]):
 
     if r.status_code != 200:
         raise Exception("Failed to create Cloudflare list: " + str(r.content))
-    print ("Created list " + name)
+    print("Created list " + name)
     return r.json()["result"]
 
 
@@ -77,6 +78,7 @@ def get_firewall_policies(name_prefix: str):
     lists = r.json()["result"] or []
 
     return [l for l in lists if l["name"].startswith(name_prefix)]
+
 
 def delete_firewall_policy(policy_id: str):
     r = session.delete(
@@ -115,6 +117,30 @@ def create_gateway_policy(name: str, list_ids: List[str]):
     return r.json()["result"]
 
 
+def create_gateway_policy_tld(name: str, regex_tld: str):
+    r = session.post(
+        f"https://api.cloudflare.com/client/v4/accounts/{CF_IDENTIFIER}/gateway/rules",
+        json={
+            "name": name,
+            "description": "Created by script.",
+            "action": "block",
+            "enabled": True,
+            "filters": ["dns"],
+            "traffic": f'not(any(dns.domains[*] matches "{regex_tld}"))',
+            "rule_settings": {
+                "block_page_enabled": True,
+            },
+        },
+    )
+
+    logger.debug(f"[create_gateway_policy] {r.status_code}")
+
+    if r.status_code != 200:
+        raise Exception("Failed to create Cloudflare firewall policy" + str(r.content))
+
+    return r.json()["result"]
+
+
 def update_gateway_policy(name: str, policy_id: str, list_ids: List[str]):
     r = session.put(
         f"https://api.cloudflare.com/client/v4/accounts/{CF_IDENTIFIER}/gateway/rules/{policy_id}",
@@ -130,5 +156,27 @@ def update_gateway_policy(name: str, policy_id: str, list_ids: List[str]):
 
     if r.status_code != 200:
         raise Exception("Failed to update Cloudflare firewall policy")
+
+    return r.json()["result"]
+
+
+def update_gateway_policy_tld(name: str, policy_id: str, regex_tld: str):
+    r = session.put(
+        f"https://api.cloudflare.com/client/v4/accounts/{CF_IDENTIFIER}/gateway/rules/{policy_id}",
+        json={
+            "name": name,
+            "action": "block",
+            "enabled": True,
+            "traffic": f'not(any(dns.domains[*] matches "{regex_tld}"))',
+            "rule_settings": {
+                "block_page_enabled": True,
+            },
+        },
+    )
+
+    logger.debug(f"[update_gateway_policy] {r.status_code}")
+
+    if r.status_code != 200:
+        raise Exception("Failed to update Cloudflare firewall policy" + str(r.content))
 
     return r.json()["result"]
