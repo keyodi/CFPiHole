@@ -1,3 +1,6 @@
+from pathlib import Path
+from typing import List
+from math import ceil
 import os
 import logging
 import requests
@@ -5,9 +8,6 @@ import cloudflare
 import tld
 import configparser
 import time
-from pathlib import Path
-from typing import List
-from math import ceil
 
 
 class App:
@@ -25,6 +25,7 @@ class App:
         self.whitelist = self.load_whitelist()
         self.tldlist = self.load_tldlist()
 
+
     def load_whitelist(self):
         # read list of domains to exclude from lists
         if os.path.exists(self.file_path_whitelist):
@@ -41,12 +42,12 @@ class App:
         if os.path.exists(self.file_path_tld):
             with open(self.file_path_tld, "r") as file:
                 # read first character
-                first_char = file.read(1)
-                if first_char:
-                    app = tld.App()
-                    app.run()
-
-                    return file.read().splitlines()
+                is_not_empty = file.read(1)
+                if is_not_empty:
+                    tldList = file.read()
+                    tld.create_tld_policy(tldList)
+                    
+                    return tldList.splitlines()
                 else:
                     self.logger.info(f"\033[0;31;97m tdlist.txt is empty\033[0;0m")
 

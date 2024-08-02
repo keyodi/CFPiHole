@@ -117,6 +117,25 @@ def create_gateway_policy(name: str, list_ids: List[str]):
     return r.json()["result"]
 
 
+def update_gateway_policy(name: str, policy_id: str, list_ids: List[str]):
+    r = session.put(
+        f"https://api.cloudflare.com/client/v4/accounts/{CF_IDENTIFIER}/gateway/rules/{policy_id}",
+        json={
+            "name": name,
+            "action": "block",
+            "enabled": True,
+            "traffic": "or".join([f"any(dns.domains[*] in ${l})" for l in list_ids]),
+        },
+    )
+
+    logger.debug(f"[update_gateway_policy] {r.status_code}")
+
+    if r.status_code != 200:
+        raise Exception("Failed to update Cloudflare firewall policy")
+
+    return r.json()["result"]
+
+
 def create_gateway_policy_tld(name: str, regex_tld: str):
     r = session.post(
         f"https://api.cloudflare.com/client/v4/accounts/{CF_IDENTIFIER}/gateway/rules",
@@ -140,24 +159,6 @@ def create_gateway_policy_tld(name: str, regex_tld: str):
 
     return r.json()["result"]
 
-
-def update_gateway_policy(name: str, policy_id: str, list_ids: List[str]):
-    r = session.put(
-        f"https://api.cloudflare.com/client/v4/accounts/{CF_IDENTIFIER}/gateway/rules/{policy_id}",
-        json={
-            "name": name,
-            "action": "block",
-            "enabled": True,
-            "traffic": "or".join([f"any(dns.domains[*] in ${l})" for l in list_ids]),
-        },
-    )
-
-    logger.debug(f"[update_gateway_policy] {r.status_code}")
-
-    if r.status_code != 200:
-        raise Exception("Failed to update Cloudflare firewall policy")
-
-    return r.json()["result"]
 
 
 def update_gateway_policy_tld(name: str, policy_id: str, regex_tld: str):
