@@ -1,13 +1,14 @@
-import logging
-import pathlib
+from pathlib import Path
 from typing import List
+from math import ceil
+import os
+import logging
 import requests
 import cloudflare
+import tld
 import configparser
-import pandas as pd
-import os
 import time
-from math import ceil
+import re
 
 
 class App:
@@ -21,10 +22,10 @@ class App:
         self.file_path_tld = "tldlist.txt"
         self.file_path_config = "config.ini"
 
-        self.name_prefix = f"[CFPihole]"
+        self.name_prefix = f"[CFPihole] Block Ads"
         self.whitelist = self.load_whitelist()
         self.tldlist = self.load_tldlist()
-
+    
     def load_whitelist(self):
         # read list of domains to exclude from lists
         if os.path.exists(self.file_path_whitelist):
@@ -32,19 +33,30 @@ class App:
                 return file.read().splitlines()
         else:
             self.logger.warning(
-                f"\033[0;31;97m Missing {self.file_path_whitelist}, skipping\033[0;0m")
+                f"\033[0;31;97m Missing {self.file_path_whitelist}, skipping\033[0;0m"
+            )
             return []
-
 
     def load_tldlist(self):
         # read list of tld domains
         if os.path.exists(self.file_path_tld):
             with open(self.file_path_tld, "r") as file:
-                return file.read().splitlines()
+                tldList = file.read()
+                # read file to make sure it is not empty
+                if not re.search(r'^\s*$', tldList):
+                    tld.create_tld_policy(tldList)
+                    
+                    return tldList.splitlines()
+                else:
+                    tld.delete_tld_policy()
+                    self.logger.warning(f"\033[0;31;97m tdlist.txt is empty, deleting\033[0;0m")
+
+                    return []
         else:
             self.logger.warning(
                 f"\033[0;31;97m Missing {self.file_path_tld}, skipping\033[0;0m"
             )
+
             return []
 
     def run(self):
@@ -56,28 +68,29 @@ class App:
             config.read(self.file_path_config)
 
             all_domains = []
-            for list in config["Lists"]:
-                self.logger.debug(f"Setting list " + list)
+            for domain_list in config["Lists"]:
+                self.logger.debug(f"Setting list " + domain_list)
 
-                self.download_file(config["Lists"][list], list)
-                domains = self.convert_to_domain_list(list)
+                self.download_file(config["Lists"][domain_list], domain_list)
+                domains = self.convert_to_domain_list(domain_list)
                 all_domains = all_domains + domains
 
-            self.logger.debug(f"Total not unique domains:\033[92m {len(all_domains)}\033[0;0m")
+            self.logger.debug(
+                f"Total not unique domains:\033[92m {len(all_domains)}\033[0;0m"
+            )
 
-            unique_domains = pd.Series(all_domains).unique()
+            unique_domains = list(set(all_domains))
             total_new_lists = ceil(len(unique_domains) / 1000)
 
             self.logger.info(
                 f"Total count of unique domains in list:\033[92m {len(unique_domains)}\033[0;0m"
             )
-            self.logger.info(f"Total lists to create:\033[92m {total_new_lists}\033[0;0m")
+            self.logger.info(
+                f"Total lists to create:\033[92m {total_new_lists}\033[0;0m"
+            )
 
-            # check if the list is already in Cloudflare
-            cf_lists = cloudflare.get_lists(self.name_prefix)
-
-            # get total lists is already in Cloudflare
-            total_cf_lists = cloudflare.get_total_lists()
+            # count of lists in Cloudflare
+            cf_lists, total_cf_lists = cloudflare.get_lists(self.name_prefix)
 
             # additional lists created outside of CFPihole
             diff_cf_lists = len(total_cf_lists) - len(cf_lists)
@@ -111,7 +124,7 @@ class App:
                     self.logger.debug(f"Deleting list {l['name']}")
 
                     # sleep to prevent rate limit
-                    time.sleep(2.0)
+                    time.sleep(1.5)
 
                     cloudflare.delete_list(l["id"])
 
@@ -128,21 +141,23 @@ class App:
                     _list = cloudflare.create_list(list_name, chunk)
 
                     # sleep to prevent rate limit
-                    time.sleep(2.0)
+                    time.sleep(1.5)
 
                     cf_lists.append(_list)
 
                 # get the gateway policies
                 cf_policies = cloudflare.get_firewall_policies(self.name_prefix)
 
-                self.logger.info(f"Number of policies in Cloudflare: {len(cf_policies)}")
+                self.logger.info(
+                    f"Number of policies in Cloudflare: {len(cf_policies)}"
+                )
 
                 # setup the gateway policy
                 if len(cf_policies) == 0:
                     self.logger.info("Creating firewall policy")
 
                     cf_policies = cloudflare.create_gateway_policy(
-                        f"{self.name_prefix} Block Ads", [l["id"] for l in cf_lists]
+                        f"{self.name_prefix}", [l["id"] for l in cf_lists]
                     )
 
                 elif len(cf_policies) != 1:
@@ -154,10 +169,10 @@ class App:
                     self.logger.info("Updating firewall policy")
 
                     cloudflare.update_gateway_policy(
-                        f"{self.name_prefix} Block Ads",
+                        f"{self.name_prefix}",
                         cf_policies[0]["id"],
                         [l["id"] for l in cf_lists],
-                  )
+                    )
 
                 self.logger.info(f"\033[92m Done\033[0;0m")
 
@@ -167,8 +182,6 @@ class App:
             )
 
     def is_valid_hostname(self, hostname):
-        import re
-
         if len(hostname) > 255:
             return False
         hostname = hostname.rstrip(".")
@@ -186,7 +199,7 @@ class App:
 
         r = requests.get(url, allow_redirects=True)
 
-        path = pathlib.Path("tmp/" + name)
+        path = Path("tmp/" + name)
         open(path, "wb").write(r.content)
 
         self.logger.info(f"File size: {path.stat().st_size}")
@@ -216,7 +229,7 @@ class App:
                 continue
 
             # skip tld is in List
-            if not line.endswith(tuple(self.tldlist)):
+            if len(self.tldlist) and not line.endswith(tuple(self.tldlist)):
                 continue
 
             if is_hosts_file:
