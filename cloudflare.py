@@ -160,7 +160,6 @@ def create_gateway_policy_tld(name: str, regex_tld: str):
     return r.json()["result"]
 
 
-
 def update_gateway_policy_tld(name: str, policy_id: str, regex_tld: str):
     r = session.put(
         f"https://api.cloudflare.com/client/v4/accounts/{CF_IDENTIFIER}/gateway/rules/{policy_id}",
@@ -181,3 +180,4 @@ def update_gateway_policy_tld(name: str, policy_id: str, regex_tld: str):
         raise Exception("Failed to update Cloudflare firewall policy" + str(r.content))
 
     return r.json()["result"]
+

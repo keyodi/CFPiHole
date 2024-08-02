@@ -8,6 +8,7 @@ import cloudflare
 import tld
 import configparser
 import time
+import re
 
 
 class App:
@@ -24,8 +25,7 @@ class App:
         self.name_prefix = f"[CFPihole] Block Ads"
         self.whitelist = self.load_whitelist()
         self.tldlist = self.load_tldlist()
-
-
+    
     def load_whitelist(self):
         # read list of domains to exclude from lists
         if os.path.exists(self.file_path_whitelist):
@@ -41,21 +41,22 @@ class App:
         # read list of tld domains
         if os.path.exists(self.file_path_tld):
             with open(self.file_path_tld, "r") as file:
-                # read first character
-                is_not_empty = file.read(1)
-                if is_not_empty:
-                    tldList = file.read()
+                tldList = file.read()
+                # read file to make sure it is not empty
+                if not re.search(r'^\s*$', tldList):
                     tld.create_tld_policy(tldList)
                     
                     return tldList.splitlines()
                 else:
-                    self.logger.info(f"\033[0;31;97m tdlist.txt is empty\033[0;0m")
+                    tld.delete_tld_policy()
+                    self.logger.warning(f"\033[0;31;97m tdlist.txt is empty, deleting\033[0;0m")
 
                     return []
         else:
             self.logger.warning(
                 f"\033[0;31;97m Missing {self.file_path_tld}, skipping\033[0;0m"
             )
+
             return []
 
     def run(self):
@@ -181,8 +182,6 @@ class App:
             )
 
     def is_valid_hostname(self, hostname):
-        import re
-
         if len(hostname) > 255:
             return False
         hostname = hostname.rstrip(".")
