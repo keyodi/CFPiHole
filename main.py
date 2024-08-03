@@ -25,7 +25,7 @@ class App:
         self.name_prefix = f"[CFPihole] Block Ads"
         self.whitelist = self.load_whitelist()
         self.tldlist = self.load_tldlist()
-    
+
     def load_whitelist(self):
         # read list of domains to exclude from lists
         if os.path.exists(self.file_path_whitelist):
@@ -43,20 +43,16 @@ class App:
             with open(self.file_path_tld, "r") as file:
                 tldList = file.read()
                 # read file to make sure it is not empty
-                if not re.search(r'^\s*$', tldList):
+                if not re.search(r"^\s*$", tldList):
                     tld.create_tld_policy(tldList)
-                    
                     return tldList.splitlines()
                 else:
                     tld.delete_tld_policy()
-                    self.logger.warning(f"\033[0;31;97m tdlist.txt is empty, deleting\033[0;0m")
-
                     return []
         else:
             self.logger.warning(
                 f"\033[0;31;97m Missing {self.file_path_tld}, skipping\033[0;0m"
             )
-
             return []
 
     def run(self):
@@ -117,16 +113,14 @@ class App:
                 if len(cf_policies) > 0:
                     cloudflare.delete_firewall_policy(cf_policies[0]["id"])
 
-                self.logger.info("Deleting lists, please wait")
-
                 # delete the lists
                 for l in cf_lists:
-                    self.logger.debug(f"Deleting list {l['name']}")
+                    self.logger.info(f"Deleting list {l['name']}")
+
+                    cloudflare.delete_list(l["id"])
 
                     # sleep to prevent rate limit
                     time.sleep(1.5)
-
-                    cloudflare.delete_list(l["id"])
 
                 cf_lists = []
 
@@ -140,10 +134,10 @@ class App:
 
                     _list = cloudflare.create_list(list_name, chunk)
 
+                    cf_lists.append(_list)
+
                     # sleep to prevent rate limit
                     time.sleep(1.5)
-
-                    cf_lists.append(_list)
 
                 # get the gateway policies
                 cf_policies = cloudflare.get_firewall_policies(self.name_prefix)
