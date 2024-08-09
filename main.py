@@ -44,8 +44,9 @@ class App:
                 tldList = file.read()
                 # read file to make sure it is not empty
                 if not re.search(r"^\s*$", tldList):
+                    tldList = set(tldList.splitlines())
                     tld.create_tld_policy(tldList)
-                    return tldList.splitlines()
+                    return tldList
                 else:
                     tld.delete_tld_policy()
                     return []

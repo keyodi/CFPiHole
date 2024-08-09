@@ -9,7 +9,7 @@ logger = logging.getLogger("main")
 name_prefix = f"[CFPihole] Block TLDs"
 
 
-def create_tld_policy(tld_list: str):
+def create_tld_policy(tld_list: list):
     # delete the policy
     cf_policies = cloudflare.get_firewall_policies(name_prefix)
 
@@ -21,6 +21,9 @@ def create_tld_policy(tld_list: str):
 
     logger.info(f"Number of policies in Cloudflare: {len(cf_policies)}")
 
+    # remove dups and sort
+    tld_list = sorted(tld_list)
+    tld_list = ''.join([str(elem) for elem in tld_list])
     regex_tld = "[.](" + tld_list.replace(".", "|").lstrip("|").replace("\n", "") + ")$"
 
     # setup the gateway policy
