@@ -23,7 +23,7 @@ def create_tld_policy(tld_list: list):
 
     # remove dups and sort
     tld_list = sorted(tld_list)
-    tld_list = ''.join([str(elem) for elem in tld_list])
+    tld_list = "".join([str(elem) for elem in tld_list])
     regex_tld = "[.](" + tld_list.replace(".", "|").lstrip("|").replace("\n", "") + ")$"
 
     # setup the gateway policy
@@ -54,4 +54,4 @@ def delete_tld_policy():
     if len(cf_policies) > 0:
         cloudflare.delete_firewall_policy(cf_policies[0]["id"])
 
-    self.logger.info(f"\033[0;31;97m Deleted TLD firewall policy\033[0;0m")
+    logger.info(f"\033[0;31;97m Deleted TLD firewall policy\033[0;0m")
