@@ -180,19 +180,6 @@ class App:
                 f"\033[0;31;40m {file_path_config} does not exist, stopping\033[0;0m"
             )
 
-    def is_valid_hostname(self, hostname):
-        if len(hostname) > 255:
-            return False
-        hostname = hostname.rstrip(".")
-        allowed = re.compile(r"^[a-z0-9]([a-z0-9\-\_]{0,61}[a-z0-9])?$", re.IGNORECASE)
-        labels = hostname.split(".")
-
-        # the TLD must not be all-numeric
-        if re.match(r"^[0-9]+$", labels[-1]):
-            return False
-
-        return all(allowed.match(x) for x in labels)
-
     def download_file(self, url, name):
         self.logger.info(f"Downloading file from {url}")
 
