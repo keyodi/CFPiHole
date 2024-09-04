@@ -17,52 +17,56 @@ class App:
         logging.basicConfig(level=logging.INFO)
         self.logger = logging.getLogger("main")
 
-        # Define file paths
-        self.file_path_whitelist = "whitelist.txt"
-        self.file_path_tld = "tldlist.txt"
-        self.file_path_config = "config.ini"
-
-        self.name_prefix = f"[CFPihole] Block Ads"
         self.whitelist = self.load_whitelist()
         self.tldlist = self.load_tldlist()
 
     def load_whitelist(self):
+        # Define file path
+        file_path_whitelist = "whitelist.txt"
+
         # read list of domains to exclude from lists
-        if os.path.exists(self.file_path_whitelist):
-            with open(self.file_path_whitelist, "r") as file:
+        if os.path.exists(file_path_whitelist):
+            with open(file_path_whitelist, "r") as file:
                 return file.read().splitlines()
         else:
             self.logger.warning(
-                f"\033[0;31;97m Missing {self.file_path_whitelist}, skipping\033[0;0m"
+                f"\033[0;31;97m Missing {file_path_whitelist}, skipping\033[0;0m"
             )
             return []
 
     def load_tldlist(self):
+        # Define file path
+        file_path_tld = "tldlist.txt"
+
         # read list of tld domains
-        if os.path.exists(self.file_path_tld):
-            with open(self.file_path_tld, "r") as file:
+        if os.path.exists(file_path_tld):
+            with open(file_path_tld, "r") as file:
                 tldList = file.read()
-                # read file to make sure it is not empty
-                if not re.search(r"^\s*$", tldList):
-                    tldList = set(tldList.splitlines())
-                    tld.create_tld_policy(tldList)
-                    return tldList
-                else:
-                    tld.delete_tld_policy()
-                    return []
+            # read file to make sure it is not empty
+            if not re.search(r"^\s*$", tldList):
+                tldList = set(tldList.splitlines())
+                tld.create_tld_policy(tldList)
+                return tldList
+            else:
+                tld.delete_tld_policy()
+                return []
         else:
             self.logger.warning(
-                f"\033[0;31;97m Missing {self.file_path_tld}, skipping\033[0;0m"
+                f"\033[0;31;97m Missing {file_path_tld}, skipping\033[0;0m"
             )
             return []
 
     def run(self):
+        # define variables
+        name_prefix = f"[CFPihole] Block Ads"
+        file_path_config = "config.ini"
+
         # Ensure tmp directory exists
         os.makedirs("./tmp", exist_ok=True)
 
-        if os.path.exists(self.file_path_config):
+        if os.path.exists(file_path_config):
             config = configparser.ConfigParser()
-            config.read(self.file_path_config)
+            config.read(file_path_config)
 
             all_domains = []
             for domain_list in config["Lists"]:
@@ -87,7 +91,7 @@ class App:
             )
 
             # count of lists in Cloudflare
-            cf_lists, total_cf_lists = cloudflare.get_lists(self.name_prefix)
+            cf_lists, total_cf_lists = cloudflare.get_lists(name_prefix)
 
             # additional lists created outside of CFPihole
             diff_cf_lists = len(total_cf_lists) - len(cf_lists)
@@ -110,7 +114,7 @@ class App:
 
             else:
                 # delete the policy
-                cf_policies = cloudflare.get_firewall_policies(self.name_prefix)
+                cf_policies = cloudflare.get_firewall_policies(name_prefix)
                 if len(cf_policies) > 0:
                     cloudflare.delete_firewall_policy(cf_policies[0]["id"])
 
@@ -129,7 +133,7 @@ class App:
 
                 # chunk the domains into lists of 1000 and create them
                 for chunk in self.chunk_list(unique_domains, 1000):
-                    list_name = f"{self.name_prefix} {len(cf_lists) + 1}"
+                    list_name = f"{name_prefix} {len(cf_lists) + 1}"
 
                     self.logger.debug(f"Creating list {list_name}")
 
@@ -141,7 +145,7 @@ class App:
                     time.sleep(1.5)
 
                 # get the gateway policies
-                cf_policies = cloudflare.get_firewall_policies(self.name_prefix)
+                cf_policies = cloudflare.get_firewall_policies(name_prefix)
 
                 self.logger.info(
                     f"Number of policies in Cloudflare: {len(cf_policies)}"
@@ -152,7 +156,7 @@ class App:
                     self.logger.info("Creating firewall policy")
 
                     cf_policies = cloudflare.create_gateway_policy(
-                        f"{self.name_prefix}", [l["id"] for l in cf_lists]
+                        f"{name_prefix}", [l["id"] for l in cf_lists]
                     )
 
                 elif len(cf_policies) != 1:
@@ -164,7 +168,7 @@ class App:
                     self.logger.info("Updating firewall policy")
 
                     cloudflare.update_gateway_policy(
-                        f"{self.name_prefix}",
+                        f"{name_prefix}",
                         cf_policies[0]["id"],
                         [l["id"] for l in cf_lists],
                     )
@@ -173,7 +177,7 @@ class App:
 
         else:
             self.logger.error(
-                f"\033[0;31;40m {self.file_path_config} does not exist, stopping\033[0;0m"
+                f"\033[0;31;40m {file_path_config} does not exist, stopping\033[0;0m"
             )
 
     def is_valid_hostname(self, hostname):
@@ -195,7 +199,8 @@ class App:
         r = requests.get(url, allow_redirects=True)
 
         path = Path("tmp/" + name)
-        open(path, "wb").write(r.content)
+        with open(path, "wb") as f:
+            f.write(r.content)
 
         self.logger.info(f"File size: {path.stat().st_size}")
 
