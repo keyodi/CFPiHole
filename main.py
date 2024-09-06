@@ -46,9 +46,6 @@ class App:
                 tldList = set(tldList.splitlines())
                 return tldList
             else:
-                self.logger.warning(
-                    f"\033[0;31;97m File {file_path_tld} is empty, deleting TLD CF policy\033[0;0m"
-                )
                 tld.delete_tld_policy()
                 return []
         else:
