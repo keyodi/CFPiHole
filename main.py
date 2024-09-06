@@ -9,6 +9,7 @@ import tld
 import configparser
 import time
 
+
 class App:
     def __init__(self):
         # Configure logging
@@ -43,9 +44,11 @@ class App:
             # read file to make sure it is not empty
             if len(tldList.strip()):
                 tldList = set(tldList.splitlines())
-                tld.create_tld_policy(tldList)
                 return tldList
             else:
+                self.logger.warning(
+                    f"\033[0;31;97m File {file_path_tld} is empty, deleting TLD CF policy\033[0;0m"
+                )
                 tld.delete_tld_policy()
                 return []
         else:
@@ -142,6 +145,9 @@ class App:
                     # sleep to prevent rate limit
                     time.sleep(1.5)
 
+                # setup TLD gateway policy
+                tld.create_tld_policy(tldList)
+
                 # get the gateway policies
                 cf_policies = cloudflare.get_firewall_policies(name_prefix)
 
@@ -213,7 +219,7 @@ class App:
             ):
                 continue
 
-            # skip tld is in List
+            # skip if tld is in List
             if len(self.tldlist) and not line.endswith(tuple(self.tldlist)):
                 continue
 
