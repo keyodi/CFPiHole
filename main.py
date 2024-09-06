@@ -8,8 +8,6 @@ import cloudflare
 import tld
 import configparser
 import time
-import re
-
 
 class App:
     def __init__(self):
@@ -43,7 +41,7 @@ class App:
             with open(file_path_tld, "r") as file:
                 tldList = file.read()
             # read file to make sure it is not empty
-            if not re.search(r"^\s*$", tldList):
+            if len(tldList.strip()):
                 tldList = set(tldList.splitlines())
                 tld.create_tld_policy(tldList)
                 return tldList
