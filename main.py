@@ -42,9 +42,8 @@ class App:
             with open(file_path_tld, "r") as file:
                 tldList = file.read()
             # read file to make sure it is not empty
-            if len(tldList.strip()):
-                tldList = set(tldList.splitlines())
-                return tldList
+            if len(tldList.strip()): 
+                return set(tldList.splitlines())
             else:
                 tld.delete_tld_policy()
                 return []
@@ -143,7 +142,7 @@ class App:
                     time.sleep(1.5)
 
                 # setup TLD gateway policy
-                tld.create_tld_policy(tldList)
+                tld.create_tld_policy(self.tldlist)
 
                 # get the gateway policies
                 cf_policies = cloudflare.get_firewall_policies(name_prefix)
