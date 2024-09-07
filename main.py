@@ -42,7 +42,7 @@ class App:
             with open(file_path_tld, "r") as file:
                 tldList = file.read()
             # read file to make sure it is not empty
-            if len(tldList.strip()): 
+            if tldList.strip():
                 return set(tldList.splitlines())
             else:
                 tld.delete_tld_policy()
