@@ -1,4 +1,3 @@
-from pathlib import Path
 from typing import List
 from math import ceil
 import os
@@ -185,11 +184,11 @@ class App:
 
         r = requests.get(url, allow_redirects=True)
 
-        path = Path("tmp/" + name)
+        path = "tmp/" + name
         with open(path, "wb") as f:
             f.write(r.content)
 
-        self.logger.info(f"File size: {path.stat().st_size}")
+        self.logger.info(f"File size: {os.path.getsize(path)}")
 
     def convert_to_domain_list(self, file_name: str):
         with open("tmp/" + file_name, "r") as f:
@@ -216,7 +215,7 @@ class App:
                 continue
 
             # skip if tld is in List
-            if len(self.tldlist) and not line.endswith(tuple(self.tldlist)):
+            if self.tldlist and not line.endswith(tuple(self.tldlist)):
                 continue
 
             if is_hosts_file:
