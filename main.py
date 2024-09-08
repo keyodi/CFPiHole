@@ -121,9 +121,13 @@ class App:
                     cloudflare.delete_list(l["id"])
 
                     # sleep to prevent rate limit
-                    time.sleep(1.5)
+                    time.sleep(1)
 
                 cf_lists = []
+
+                # sleep to prevent rate limit
+                self.logger.info(f"\033[0;33m Pausing for 60 seconds to prevent rate limit, please wait\033[0;0m")
+                time.sleep(60)
 
                 self.logger.info("Creating lists, please wait")
 
@@ -138,7 +142,7 @@ class App:
                     cf_lists.append(_list)
 
                     # sleep to prevent rate limit
-                    time.sleep(1.5)
+                    time.sleep(1)
 
                 # setup TLD gateway policy
                 tld.create_tld_policy(self.tldlist)
