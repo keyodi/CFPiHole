@@ -23,7 +23,7 @@ def create_tld_policy(tld_list: list):
 
     # remove dups and sort
     tld_list = sorted(tld_list)
-    tld_list = "".join([str(elem) for elem in tld_list])
+    tld_list = "".join([str(elem.strip()) for elem in tld_list])
     regex_tld = "[.](" + tld_list.replace(".", "|").lstrip("|").replace("\n", "") + ")$"
 
     # setup the gateway policy
