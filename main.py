@@ -75,10 +75,10 @@ class App:
             total_new_lists = ceil(len(unique_domains) / 1000)
 
             self.logger.info(
-                f"Total count of unique domains in list: {CustomFormatter.yellow}{(len(unique_domains))}"
+                f"Total count of unique domains in list: {CustomFormatter.green}{(len(unique_domains))}"
             )
             self.logger.info(
-                f"Total lists to create: {CustomFormatter.yellow}{total_new_lists}"
+                f"Total lists to create: {CustomFormatter.green}{total_new_lists}"
             )
 
             # count of lists in Cloudflare
@@ -87,9 +87,9 @@ class App:
             # additional lists created outside of CFPihole
             diff_cf_lists = len(total_cf_lists) - len(cf_lists)
 
-            self.logger.info(f"Number of CFPiHole lists in Cloudflare: {len(cf_lists)}")
+            self.logger.debug(f"Number of CFPiHole lists in Cloudflare: {CustomFormatter.yellow}{len(cf_lists)}")
 
-            self.logger.info(f"Additional lists in Cloudflare: {diff_cf_lists}")
+            self.logger.debug(f"Additional lists in Cloudflare: {CustomFormatter.yellow}{diff_cf_lists}")
 
             # compare the lists size
             if len(unique_domains) == sum([l["count"] for l in cf_lists]):
@@ -232,7 +232,7 @@ class App:
 
             domains.append(domain)
 
-        self.logger.info(f"Number of domains: {CustomFormatter.green}{len(domains)}")
+        self.logger.info(f"Number of domains: {CustomFormatter.yellow}{len(domains)}")
 
         return domains
 
