@@ -1,9 +1,9 @@
-import logging
+from logger_config import CustomFormatter
 import cloudflare
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("main")
+
+# configure logging
+logger = CustomFormatter.configure_logger("tld")
 
 # define variables
 name_prefix = f"[CFPihole] Block TLDs"
@@ -28,7 +28,7 @@ def create_tld_policy(tld_list: list):
 
     # setup the gateway policy
     if len(cf_policies) == 0:
-        logger.info("Creating firewall policy")
+        logger.info("Creating firewall TLD policy")
 
         cf_policies = cloudflare.create_gateway_policy_tld(f"{name_prefix}", regex_tld)
 
@@ -44,7 +44,7 @@ def create_tld_policy(tld_list: list):
             f"{name_prefix}", cf_policies[0]["id"], regex_tld
         )
 
-    logger.info(f"\033[92m Created TLD firewall policy\033[0;0m")
+    logger.info("Created TLD firewall policy")
 
 
 def delete_tld_policy():
@@ -54,4 +54,4 @@ def delete_tld_policy():
     if len(cf_policies) > 0:
         cloudflare.delete_firewall_policy(cf_policies[0]["id"])
 
-    logger.info(f"\033[0;31;97m Deleted TLD firewall policy\033[0;0m")
+    logger.info("Deleted TLD firewall policy")

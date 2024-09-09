@@ -1,7 +1,7 @@
 from typing import List
 from math import ceil
+from logger_config import CustomFormatter
 import os
-import logging
 import requests
 import cloudflare
 import tld
@@ -11,15 +11,14 @@ import time
 
 class App:
     def __init__(self):
-        # Configure logging
-        logging.basicConfig(level=logging.INFO)
-        self.logger = logging.getLogger("main")
+        # configure logging
+        self.logger = CustomFormatter.configure_logger("main")
 
         self.whitelist = self.load_whitelist()
         self.tldlist = self.load_tldlist()
 
     def load_whitelist(self):
-        # Define file path
+        # define file path
         file_path_whitelist = "whitelist.txt"
 
         # read list of domains to exclude from lists
@@ -27,13 +26,11 @@ class App:
             with open(file_path_whitelist, "r") as file:
                 return file.read().splitlines()
         else:
-            self.logger.warning(
-                f"\033[0;31;97m Missing {file_path_whitelist}, skipping\033[0;0m"
-            )
+            self.logger.warning(f"Missing {file_path_whitelist}, skipping")
             return []
 
     def load_tldlist(self):
-        # Define file path
+        # define file path
         file_path_tld = "tldlist.txt"
 
         # read list of tld domains
@@ -47,17 +44,15 @@ class App:
                 tld.delete_tld_policy()
                 return []
         else:
-            self.logger.warning(
-                f"\033[0;31;97m Missing {file_path_tld}, skipping\033[0;0m"
-            )
+            self.logger.warning(f"Missing {file_path_tld}, skipping")
             return []
 
     def run(self):
-        # define variables
+        # define static variables
         name_prefix = f"[CFPihole] Block Ads"
         file_path_config = "config.ini"
 
-        # Ensure tmp directory exists
+        # ensure tmp directory exists
         os.makedirs("./tmp", exist_ok=True)
 
         if os.path.exists(file_path_config):
@@ -73,17 +68,17 @@ class App:
                 all_domains = all_domains + domains
 
             self.logger.debug(
-                f"Total not unique domains:\033[92m {len(all_domains)}\033[0;0m"
+                f"Total not unique domains:{CustomFormatter.yellow} {len(all_domains)}"
             )
 
             unique_domains = list(set(all_domains))
             total_new_lists = ceil(len(unique_domains) / 1000)
 
             self.logger.info(
-                f"Total count of unique domains in list:\033[92m {len(unique_domains)}\033[0;0m"
+                f"Total count of unique domains in list: {CustomFormatter.yellow}{(len(unique_domains))}"
             )
             self.logger.info(
-                f"Total lists to create:\033[92m {total_new_lists}\033[0;0m"
+                f"Total lists to create: {CustomFormatter.yellow}{total_new_lists}"
             )
 
             # count of lists in Cloudflare
@@ -98,14 +93,12 @@ class App:
 
             # compare the lists size
             if len(unique_domains) == sum([l["count"] for l in cf_lists]):
-                self.logger.warning(
-                    f"\033[0;33m Lists are the same size, stopping\033[0;0m"
-                )
+                self.logger.warning("Lists are the same size, stopping")
 
             # check total lists do not exceed 300
             elif (total_new_lists + diff_cf_lists) > 300:
                 self.logger.warning(
-                    f"\033[0;33m Max of 300 lists allowed. Select smaller blocklists, stopping\033[0;0m"
+                    "Max of 300 lists allowed. Select smaller blocklists, stopping"
                 )
 
             else:
@@ -121,12 +114,14 @@ class App:
                     cloudflare.delete_list(l["id"])
 
                     # sleep to prevent rate limit
-                    time.sleep(1)
+                    time.sleep(0.75)
 
                 cf_lists = []
 
                 # sleep to prevent rate limit
-                self.logger.info(f"\033[0;33m Pausing for 60 seconds to prevent rate limit, please wait\033[0;0m")
+                self.logger.warning(
+                    "Pausing for 60 seconds to prevent rate limit, please wait"
+                )
                 time.sleep(60)
 
                 self.logger.info("Creating lists, please wait")
@@ -142,7 +137,7 @@ class App:
                     cf_lists.append(_list)
 
                     # sleep to prevent rate limit
-                    time.sleep(1)
+                    time.sleep(0.75)
 
                 # setup TLD gateway policy
                 tld.create_tld_policy(self.tldlist)
@@ -176,12 +171,10 @@ class App:
                         [l["id"] for l in cf_lists],
                     )
 
-                self.logger.info(f"\033[92m Done\033[0;0m")
+                self.logger.info(f"{CustomFormatter.green} Done")
 
         else:
-            self.logger.error(
-                f"\033[0;31;40m {file_path_config} does not exist, stopping\033[0;0m"
-            )
+            self.logger.error(f"{file_path_config} does not exist, stopping")
 
     def download_file(self, url, name):
         self.logger.info(f"Downloading file from {url}")
@@ -192,7 +185,7 @@ class App:
         with open(path, "wb") as f:
             f.write(r.content)
 
-        self.logger.info(f"File size: {os.path.getsize(path)}")
+        self.logger.info(f"File size: {os.path.getsize(path) / (1024):.0f} KB")
 
     def convert_to_domain_list(self, file_name: str):
         with open("tmp/" + file_name, "r") as f:
@@ -239,7 +232,7 @@ class App:
 
             domains.append(domain)
 
-        self.logger.info(f"Number of domains: {len(domains)}")
+        self.logger.info(f"Number of domains: {CustomFormatter.green}{len(domains)}")
 
         return domains
 
