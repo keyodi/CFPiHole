@@ -1,9 +1,10 @@
 from typing import List
+from logger_config import CustomFormatter
 import requests
-import logging
 import os
 
-logger = logging.getLogger("cloudflare")
+# configure logging
+logger = CustomFormatter.configure_logger("cloudflare")
 
 
 from dotenv import load_dotenv
