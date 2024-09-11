@@ -56,7 +56,7 @@ class App:
             return []
 
     def run(self):
-        # Define static variables
+        """Fetches domains, creates lists, and manages firewall policies."""
         name_prefix = f"[CFPihole] Block Ads"
         file_path_config = "config.ini"
 
@@ -69,7 +69,7 @@ class App:
 
             all_domains = []
             for domain_list in config["Lists"]:
-                self.logger.debug(f"Setting list " + domain_list)
+                self.logger.debug(f"Setting list {domain_list}")
 
                 self.download_file(config["Lists"][domain_list], domain_list)
                 domains = self.convert_to_domain_list(domain_list)
@@ -89,104 +89,93 @@ class App:
                 f"Total lists to create: {CustomFormatter.GREEN}{total_new_lists}"
             )
 
-            # Count of lists in Cloudflare
-            cf_lists, total_cf_lists = cloudflare.get_lists(name_prefix)
-
-            # Additional lists created outside of CFPihole
-            diff_cf_lists = len(total_cf_lists) - len(cf_lists)
-
-            self.logger.debug(
-                f"Number of CFPiHole lists in Cloudflare: {CustomFormatter.YELLOW}{len(cf_lists)}"
-            )
-
-            self.logger.debug(
-                f"Additional lists in Cloudflare: {CustomFormatter.YELLOW}{diff_cf_lists}"
-            )
-
-            # Compare the lists size
-            if len(unique_domains) == sum([l["count"] for l in cf_lists]):
-                self.logger.warning("Lists are the same size, stopping")
-
-            # Check total lists do not exceed 300
-            elif (total_new_lists + diff_cf_lists) > 300:
-                self.logger.warning(
-                    "Max of 300 lists allowed. Select smaller blocklists, stopping"
-                )
-
-            else:
-                # Delete the policy
-                cf_policies = cloudflare.get_firewall_policies(name_prefix)
-                if len(cf_policies) > 0:
-                    cloudflare.delete_firewall_policy(cf_policies[0]["id"])
-
-                # delete the lists
-                for l in cf_lists:
-                    self.logger.info(f"Deleting list {l['name']}")
-
-                    cloudflare.delete_list(l["id"])
-
-                    # Sleep to prevent rate limit
-                    time.sleep(0.75)
-
-                cf_lists = []
-
-                # Sleep to prevent rate limit
-                self.logger.warning(
-                    "Pausing for 60 seconds to prevent rate limit, please wait"
-                )
-                time.sleep(60)
-
-                self.logger.info("Creating lists, please wait")
-
-                # Chunk the domains into lists of 1000 and create them
-                for chunk in self.chunk_list(unique_domains, 1000):
-                    list_name = f"{name_prefix} {len(cf_lists) + 1}"
-
-                    self.logger.debug(f"Creating list {list_name}")
-
-                    _list = cloudflare.create_list(list_name, chunk)
-
-                    cf_lists.append(_list)
-
-                    # sleep to prevent rate limit
-                    time.sleep(0.75)
-
-                # Setup TLD gateway policy
-                tld.create_tld_policy(self.tldlist)
-
-                # Get the gateway policies
-                cf_policies = cloudflare.get_firewall_policies(name_prefix)
-
-                self.logger.info(
-                    f"Number of policies in Cloudflare: {len(cf_policies)}"
-                )
-
-                # Setup the gateway policy
-                if len(cf_policies) == 0:
-                    self.logger.info("Creating firewall policy")
-
-                    cf_policies = cloudflare.create_gateway_policy(
-                        f"{name_prefix}", [l["id"] for l in cf_lists]
-                    )
-
-                elif len(cf_policies) != 1:
-                    self.logger.error("More than one firewall policy found")
-
-                    raise Exception("More than one firewall policy found")
-
-                else:
-                    self.logger.info("Updating firewall policy")
-
-                    cloudflare.update_gateway_policy(
-                        f"{name_prefix}",
-                        cf_policies[0]["id"],
-                        [l["id"] for l in cf_lists],
-                    )
-
-                self.logger.info(f"{CustomFormatter.GREEN} Done")
-
         else:
             self.logger.error(f"{file_path_config} does not exist, stopping")
+            return []
+
+        # Check list size and limits
+        cf_lists, total_cf_lists = cloudflare.get_lists(name_prefix)
+        diff_cf_lists = len(total_cf_lists) - len(cf_lists)
+
+        self.logger.debug(
+            f"Number of CFPiHole lists in Cloudflare: {CustomFormatter.YELLOW}{len(cf_lists)}"
+        )
+        self.logger.debug(
+            f"Additional lists in Cloudflare: {CustomFormatter.YELLOW}{diff_cf_lists}"
+        )
+
+        # Compare the lists size
+        if len(unique_domains) == sum([l["count"] for l in cf_lists]):
+            self.logger.warning("Lists are the same size, stopping")
+            return []
+
+        # Check total lists do not exceed 300
+        elif (total_new_lists + diff_cf_lists) > 300:
+            self.logger.warning(
+                "Max of 300 lists allowed. Select smaller blocklists, stopping"
+            )
+            return []
+
+        # Manage existing Cloudflare policy and lists
+        cf_policies = cloudflare.get_firewall_policies(name_prefix)
+        if len(cf_policies) > 0:
+            cloudflare.delete_firewall_policy(cf_policies[0]["id"])
+
+        # Delete the lists
+        for l in cf_lists:
+            self.logger.info(f"Deleting list {l['name']}")
+            cloudflare.delete_list(l["id"])
+
+            # Sleep to prevent rate limit
+            time.sleep(0.9)
+
+        # Create new lists with chunking
+        cf_lists = []
+
+        # Sleep to prevent rate limit
+        self.logger.warning("Pausing for 60 seconds to prevent rate limit, please wait")
+        time.sleep(60)
+
+        self.logger.info("Creating lists, please wait")
+
+        # Chunk the domains into lists of 1000 and create them
+        for chunk in self.chunk_list(unique_domains, 1000):
+            list_name = f"{name_prefix} {len(cf_lists) + 1}"
+            _list = cloudflare.create_list(list_name, chunk)
+            cf_lists.append(_list)
+
+            self.logger.debug(f"Creating list {list_name}")
+            # Sleep to prevent rate limit
+            time.sleep(0.9)
+
+        # Setup TLD gateway policy
+        tld.create_tld_policy(self.tldlist)
+
+        # Manage firewall policy based on existing policies
+        self.logger.info(f"Number of policies in Cloudflare: {len(cf_policies)}")
+
+        # Setup the gateway policy
+        if len(cf_policies) == 0:
+            self.logger.info("Creating firewall policy")
+
+            cf_policies = cloudflare.create_gateway_policy(
+                f"{name_prefix}", [l["id"] for l in cf_lists]
+            )
+
+        elif len(cf_policies) != 1:
+            self.logger.error("More than one firewall policy found")
+            raise Exception("More than one firewall policy found")
+
+        else:
+            self.logger.info("Updating firewall policy")
+
+            cloudflare.update_gateway_policy(
+                f"{name_prefix}",
+                cf_policies[0]["id"],
+                [l["id"] for l in cf_lists],
+            )
+
+         self.logger.info(f"{CustomFormatter.GREEN} Done")
 
     def download_file(self, url, name):
         """Downloads a file from the given URL and saves it to the temporary directory.

@@ -2,10 +2,10 @@ from logger_config import CustomFormatter
 import cloudflare
 
 
-# configure logging
+# Configure logging
 logger = CustomFormatter.configure_logger("tld")
 
-# define variables
+# Define variables
 name_prefix = f"[CFPihole] Block TLDs"
 
 
