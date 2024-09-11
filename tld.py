@@ -10,48 +10,47 @@ name_prefix = f"[CFPihole] Block TLDs"
 
 
 def create_tld_policy(tld_list: list):
-    # delete the policy
+    """Creates or updates a TLD blocking policy in Cloudflare."""
+
+    # Get existing policies
     cf_policies = cloudflare.get_firewall_policies(name_prefix)
 
-    if len(cf_policies) > 0:
-        cloudflare.delete_firewall_policy(cf_policies[0]["id"])
-
-    # get the gateway policies
-    cf_policies = cloudflare.get_firewall_policies(name_prefix)
-
-    logger.info(f"Number of policies in Cloudflare: {len(cf_policies)}")
-
-    # remove dups and sort
-    tld_list = sorted(tld_list)
-    tld_list = "".join([str(elem.strip()) for elem in tld_list])
-    regex_tld = "[.](" + tld_list.replace(".", "|").lstrip("|").replace("\n", "") + ")$"
-
-    # setup the gateway policy
-    if len(cf_policies) == 0:
-        logger.info("Creating firewall TLD policy")
-
-        cf_policies = cloudflare.create_gateway_policy_tld(f"{name_prefix}", regex_tld)
-
-    elif len(cf_policies) != 1:
-        logger.error("More than one firewall policy found")
-
-        raise Exception("More than one firewall policy found")
+    if cf_policies:
+        policy_id = cf_policies[0]["id"]
+        num_policies = len(cf_policies)
 
     else:
+        num_policies = 0
+        policy_id = None
+
+    # Remove duplicates, sort, and create regex
+    unique_tlds = sorted(set(tld.replace(".", "") for tld in tld_list))
+    regex_tld = rf"[.](|{"|".join(unique_tlds)})$"
+
+    if num_policies == 0:
+        logger.info("Creating firewall TLD policy")
+        cloudflare.create_gateway_policy_tld(name_prefix, regex_tld)
+
+    elif num_policies == 1:
         logger.info("Updating firewall policy")
+        cloudflare.update_gateway_policy_tld(name_prefix, policy_id, regex_tld)
 
-        cloudflare.update_gateway_policy_tld(
-            f"{name_prefix}", cf_policies[0]["id"], regex_tld
-        )
+    else:
+        logger.error("More than one firewall policy found")
+        raise Exception("More than one firewall policy found")
 
-    logger.info("Created TLD firewall policy")
+    logger.info("Created/Updated TLD firewall policy")
 
 
 def delete_tld_policy():
-    # delete the policy
+    """Deletes the TLD blocking policy in Cloudflare."""
+
+    # Get existing policies
     cf_policies = cloudflare.get_firewall_policies(name_prefix)
 
-    if len(cf_policies) > 0:
+    if cf_policies:
         cloudflare.delete_firewall_policy(cf_policies[0]["id"])
+        logger.info("Deleted TLD firewall policy")
 
-    logger.info("Deleted TLD firewall policy")
+    else:
+        logger.info("No TLD firewall policy found to delete")

@@ -30,16 +30,21 @@ class App:
             return []
 
     def load_tldlist(self):
-        # define file path
+        """Loads the list of TLDs from a file.
+
+        Returns:
+        list: List of TLD strings, or an empty list if the file is missing or empty.
+        """
         file_path_tld = "tldlist.txt"
 
         # read list of tld domains
         if os.path.exists(file_path_tld):
             with open(file_path_tld, "r") as file:
-                tldList = file.read()
+                tld_list = file.readlines()
             # read file to make sure it is not empty
-            if tldList.strip():
-                return set(tldList.splitlines())
+            tld_list = [line.strip() for line in tld_list if line.strip()]
+            if tld_list:
+                return tld_list
             else:
                 tld.delete_tld_policy()
                 return []
@@ -68,17 +73,17 @@ class App:
                 all_domains = all_domains + domains
 
             self.logger.debug(
-                f"Total not unique domains:{CustomFormatter.yellow} {len(all_domains)}"
+                f"Total not unique domains:{CustomFormatter.YELLOW} {len(all_domains)}"
             )
 
             unique_domains = list(set(all_domains))
             total_new_lists = ceil(len(unique_domains) / 1000)
 
             self.logger.info(
-                f"Total count of unique domains in list: {CustomFormatter.green}{(len(unique_domains))}"
+                f"Total count of unique domains in list: {CustomFormatter.GREEN}{(len(unique_domains))}"
             )
             self.logger.info(
-                f"Total lists to create: {CustomFormatter.green}{total_new_lists}"
+                f"Total lists to create: {CustomFormatter.GREEN}{total_new_lists}"
             )
 
             # count of lists in Cloudflare
@@ -87,14 +92,14 @@ class App:
             # additional lists created outside of CFPihole
             diff_cf_lists = len(total_cf_lists) - len(cf_lists)
 
-            self.logger.debug(f"Number of CFPiHole lists in Cloudflare: {CustomFormatter.yellow}{len(cf_lists)}")
+            self.logger.debug(f"Number of CFPiHole lists in Cloudflare: {CustomFormatter.YELLOW}{len(cf_lists)}")
 
-            self.logger.debug(f"Additional lists in Cloudflare: {CustomFormatter.yellow}{diff_cf_lists}")
+            self.logger.debug(f"Additional lists in Cloudflare: {CustomFormatter.YELLOW}{diff_cf_lists}")
 
             # compare the lists size
             if len(unique_domains) == sum([l["count"] for l in cf_lists]):
                 self.logger.warning("Lists are the same size, stopping")
-
+                
             # check total lists do not exceed 300
             elif (total_new_lists + diff_cf_lists) > 300:
                 self.logger.warning(
@@ -171,7 +176,7 @@ class App:
                         [l["id"] for l in cf_lists],
                     )
 
-                self.logger.info(f"{CustomFormatter.green} Done")
+                self.logger.info(f"{CustomFormatter.GREEN} Done")
 
         else:
             self.logger.error(f"{file_path_config} does not exist, stopping")
@@ -232,7 +237,7 @@ class App:
 
             domains.append(domain)
 
-        self.logger.info(f"Number of domains: {CustomFormatter.yellow}{len(domains)}")
+        self.logger.info(f"Number of domains: {CustomFormatter.YELLOW}{len(domains)}")
 
         return domains
 
