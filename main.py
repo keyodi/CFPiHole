@@ -175,7 +175,7 @@ class App:
                 [l["id"] for l in cf_lists],
             )
 
-         self.logger.info(f"{CustomFormatter.GREEN} Done")
+        self.logger.info(f"{CustomFormatter.GREEN}Done")
 
     def download_file(self, url, name):
         """Downloads a file from the given URL and saves it to the temporary directory.
