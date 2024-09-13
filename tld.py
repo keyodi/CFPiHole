@@ -9,7 +9,7 @@ logger = CustomFormatter.configure_logger("tld")
 name_prefix = f"[CFPihole] Block TLDs"
 
 
-def create_tld_policy(tld_list: list):
+def create_policy_tld(tld_list: list):
     """Creates or updates a TLD blocking policy in Cloudflare."""
 
     # Get existing policies
@@ -42,7 +42,7 @@ def create_tld_policy(tld_list: list):
     logger.info("Created/Updated TLD firewall policy")
 
 
-def delete_tld_policy():
+def delete_policy_tld():
     """Deletes the TLD blocking policy in Cloudflare."""
 
     # Get existing policies

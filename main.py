@@ -48,7 +48,7 @@ class App:
             if tld_list:
                 return tld_list
             else:
-                tld.delete_tld_policy()
+                tld.delete_policy_tld()
                 return []
 
         else:
@@ -123,8 +123,7 @@ class App:
 
         # Delete the lists
         for l in cf_lists:
-            self.logger.info(f"Deleting list {l['name']}")
-            cloudflare.delete_list(l["id"])
+            cloudflare.delete_list(l["id"], l["name"])
 
             # Sleep to prevent rate limit
             time.sleep(0.9)
@@ -144,12 +143,11 @@ class App:
             _list = cloudflare.create_list(list_name, chunk)
             cf_lists.append(_list)
 
-            self.logger.debug(f"Creating list {list_name}")
             # Sleep to prevent rate limit
             time.sleep(0.9)
 
         # Setup TLD gateway policy
-        tld.create_tld_policy(self.tldlist)
+        tld.create_policy_tld(self.tldlist)
 
         # Manage firewall policy based on existing policies
         self.logger.info(f"Number of policies in Cloudflare: {len(cf_policies)}")
