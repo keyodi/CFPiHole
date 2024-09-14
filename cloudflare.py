@@ -40,7 +40,7 @@ def get_lists(name_prefix: str):
     """
     data = api_call(session.get, "lists")
 
-    return [l for l in data if l["name"].startswith(name_prefix)], [l for l in data]
+    return [l for l in data if l["name"].startswith(name_prefix)], data
 
 
 def create_list(name: str, domains: List[str]):
@@ -87,41 +87,33 @@ def delete_firewall_policy(policy_id: str):
     logger.debug(f"Deleted policy {policy_id}")
 
 
-def _create_gateway_policy(name: str, list_ids: List[str], traffic_logic, block_page):
+def _create_gateway_policy(
+    method,
+    name: str,
+    policy_id: str = None,
+    list_ids: List[str] = None,
+    regex_tld: str = None,
+):
     """
     Creates a gateway policy with blocking logic based on list IDs.
     """
-    data = api_call(
-        session.post,
-        "rules",
-        json={
-            "name": name,
-            "description": "Created by script.",
-            "action": "block",
-            "enabled": True,
-            "filters": ["dns"],
-            "traffic": traffic_logic,
-            "rule_settings": {"block_page_enabled": block_page},
-        },
+    traffic = (
+        "or".join([f"any(dns.domains[*] in ${l})" for l in list_ids])
+        if list_ids
+        else f'not(any(dns.domains[*] matches "{regex_tld}"))'
     )
-
-    return data
-
-
-def _update_gateway_policy(name: str, policy_id: str, traffic_logic, block_page):
-    """
-    Creates a gateway policy with blocking logic based on list IDs.
-    """
+    endpoint = f"rules/{policy_id}" if policy_id else "rules"
+    block_page = bool(regex_tld)
     data = api_call(
-        session.put,
-        f"rules/{policy_id}",
+        method,
+        endpoint,
         json={
             "name": name,
             "description": "Created by script.",
             "action": "block",
             "enabled": True,
             "filters": ["dns"],
-            "traffic": traffic_logic,
+            "traffic": traffic,
             "rule_settings": {"block_page_enabled": block_page},
         },
     )
@@ -133,37 +125,25 @@ def create_gateway_policy(name: str, list_ids: List[str]):
     """
     Creates a gateway policy blocking domains in the specified lists.
     """
-    traffic = "or".join([f"any(dns.domains[*] in ${l})" for l in list_ids])
-    block_page = False
-
-    return _create_gateway_policy(name, list_ids, traffic, block_page)
+    return _create_gateway_policy(session.post, name, list_ids=list_ids)
 
 
 def update_gateway_policy(name: str, policy_id: str, list_ids: List[str]):
     """
     Updates a gateway policy with new blocking logic based on list IDs.
     """
-    traffic = "or".join([f"any(dns.domains[*] in ${l})" for l in list_ids])
-    block_page = False
-
-    return _update_gateway_policy(name, policy_id, traffic, block_page)
+    return _create_gateway_policy(session.put, name, policy_id=policy_id, list_ids=list_ids)
 
 
 def create_gateway_policy_tld(name: str, regex_tld: str):
     """
     Creates a gateway policy blocking domains in the specified lists.
     """
-    traffic = f'not(any(dns.domains[*] matches "{regex_tld}"))'
-    block_page = True
-
-    return _create_gateway_policy(name, "", traffic, block_page)
+    return _create_gateway_policy(session.post, name, regex_tld=regex_tld)
 
 
 def update_gateway_policy_tld(name: str, policy_id: str, regex_tld: str):
     """
     Updates a gateway policy with new blocking logic based on list IDs.
     """
-    traffic = f'not(any(dns.domains[*] matches "{regex_tld}"))'
-    block_page = True
-
-    return _update_gateway_policy(name, policy_id, traffic, block_page)
+    return _create_gateway_policy(session.put, name, policy_id=policy_id, regex_tld=regex_tld)
