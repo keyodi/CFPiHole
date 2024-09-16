@@ -15,6 +15,7 @@ class App:
         self.whitelist = self._load_file("whitelist.txt")
         self.tldlist = self._load_file("tldlist.txt")
 
+
     def _load_file(self, filename):
         name_prefix_tld = "[CFPihole] Block TLDs"
 
@@ -25,7 +26,6 @@ class App:
             if data and "tldlist" in filename:
                 # Setup TLD gateway policy
                 cloudflare_config.create_firewall_policy(name_prefix_tld, data)
-
             if not data and "tldlist" in filename:
                 # Delete TLD gateway policy if file is empty
                 cloudflare_config.delete_firewall_policy(name_prefix_tld)
@@ -38,6 +38,7 @@ class App:
             self.logger.warning(f"Missing {filename}, skipping")
 
             return []
+
 
     def run(self):
         """Fetches domains, creates lists, and manages firewall policies."""
@@ -95,7 +96,6 @@ class App:
                     "Max of 300 lists allowed. Select smaller blocklists, stopping"
                 )
                 return []
-
         else:
             self.logger.error(f"{file_path_config} does not exist, stopping")
             return []
@@ -105,6 +105,7 @@ class App:
         cloudflare_config.create_lists_policy(name_prefix, unique_domains)
 
         self.logger.info(f"{CustomFormatter.GREEN}Done")
+
 
     def download_file(self, url, name):
         """Downloads a file from the given URL and saves it to the temporary directory.
@@ -130,6 +131,7 @@ class App:
             file.write(response.content)
 
         self.logger.info(f"File size: {os.path.getsize(file_path) / (1024):.0f} KB")
+
 
     def convert_to_domain_list(self, file_name: str):
         """Converts a downloaded list or hosts file to a list of domains.
@@ -173,7 +175,6 @@ class App:
                         continue
                 else:
                     continue
-
             else:
                 domain = line.rstrip()
 

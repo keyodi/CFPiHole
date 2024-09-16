@@ -66,7 +66,7 @@ def delete_lists_policy(name_prefix: str, cf_lists: List[str]):
         cloudflare_api.delete_list(l["id"], l["name"])
 
         # Sleep to prevent rate limit
-        time.sleep(2)
+        time.sleep(1)
 
     return []
 
@@ -88,7 +88,7 @@ def create_lists_policy(name_prefix: str, unique_domains: List[str]):
         cf_lists.append(_list)
 
         # Sleep to prevent rate limit
-        time.sleep(2)
+        time.sleep(1)
 
     create_firewall_policy(name_prefix, [l["id"] for l in cf_lists])
 
