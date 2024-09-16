@@ -3,10 +3,8 @@ from math import ceil
 from logger_config import CustomFormatter
 import os
 import requests
-import cloudflare
-import tld
+import cloudflare_config
 import configparser
-import time
 
 
 class App:
@@ -14,50 +12,36 @@ class App:
         # Configure logging
         self.logger = CustomFormatter.configure_logger("main")
 
-        self.whitelist = self.load_whitelist()
-        self.tldlist = self.load_tldlist()
+        self.whitelist = self._load_file("whitelist.txt")
+        self.tldlist = self._load_file("tldlist.txt")
 
-    def load_whitelist(self):
-        # Define static file path
-        file_path_whitelist = "whitelist.txt"
+    def _load_file(self, filename):
+        name_prefix_tld = "[CFPihole] Block TLDs"
 
-        # Read list of domains to exclude from lists
-        if os.path.exists(file_path_whitelist):
-            with open(file_path_whitelist, "r") as file:
-                return file.read().splitlines()
+        if os.path.exists(filename):
+            with open(filename, "r") as file:
+                data = [line.strip() for line in file.readlines() if line.strip()]
 
-        else:
-            self.logger.warning(f"Missing {file_path_whitelist}, skipping")
-            return []
+            if data and "tldlist" in filename:
+                # Setup TLD gateway policy
+                cloudflare_config.create_firewall_policy(name_prefix_tld, data)
 
-    def load_tldlist(self):
-        """Loads the list of TLDs from a file.
+            if not data and "tldlist" in filename:
+                # Delete TLD gateway policy if file is empty
+                cloudflare_config.delete_firewall_policy(name_prefix_tld)
 
-        Returns:
-        list: List of TLD strings, or an empty list if the file is missing or empty.
-        """
-
-        file_path_tld = "tldlist.txt"
-
-        # Read list of tld domains
-        if os.path.exists(file_path_tld):
-            with open(file_path_tld, "r") as file:
-                tld_list = file.readlines()
-            # Remove empty lines and check if file is empty
-            tld_list = [line.strip() for line in tld_list if line.strip()]
-            if tld_list:
-                return tld_list
-            else:
-                tld.delete_policy_tld()
                 return []
 
+            return data
+
         else:
-            self.logger.warning(f"Missing {file_path_tld}, skipping")
+            self.logger.warning(f"Missing {filename}, skipping")
+
             return []
 
     def run(self):
         """Fetches domains, creates lists, and manages firewall policies."""
-        name_prefix = f"[CFPihole] Block Ads"
+        name_prefix = "[CFPihole] Block Ads"
         file_path_config = "config.ini"
 
         # Ensure tmp directory exists
@@ -75,13 +59,12 @@ class App:
                 domains = self.convert_to_domain_list(domain_list)
                 all_domains.extend(domains)
 
-            self.logger.debug(
-                f"Total not unique domains:{CustomFormatter.YELLOW} {len(all_domains)}"
-            )
-
             unique_domains = list(set(all_domains))
             total_new_lists = ceil(len(unique_domains) / 1000)
 
+            self.logger.debug(
+                f"Total not unique domains:{CustomFormatter.YELLOW} {len(all_domains)}"
+            )
             self.logger.info(
                 f"Total count of unique domains in list: {CustomFormatter.GREEN}{(len(unique_domains))}"
             )
@@ -89,89 +72,37 @@ class App:
                 f"Total lists to create: {CustomFormatter.GREEN}{total_new_lists}"
             )
 
+            # Check list size and limits
+            cf_lists, total_cf_lists = cloudflare_config.get_firewall_polcy(name_prefix)
+
+            diff_cf_lists = len(total_cf_lists) - len(cf_lists)
+
+            self.logger.debug(
+                f"Number of CFPiHole lists in Cloudflare: {CustomFormatter.YELLOW}{len(cf_lists)}"
+            )
+            self.logger.debug(
+                f"Additional lists in Cloudflare: {CustomFormatter.YELLOW}{diff_cf_lists}"
+            )
+
+            # Compare the lists size
+            if len(unique_domains) == sum([l["count"] for l in cf_lists]):
+                self.logger.warning("Lists are the same size, stopping")
+                return []
+
+            # Check total lists do not exceed 300
+            elif (total_new_lists + diff_cf_lists) > 300:
+                self.logger.warning(
+                    "Max of 300 lists allowed. Select smaller blocklists, stopping"
+                )
+                return []
+
         else:
             self.logger.error(f"{file_path_config} does not exist, stopping")
             return []
 
-        # Check list size and limits
-        cf_lists, total_cf_lists = cloudflare.get_lists(name_prefix)
-        diff_cf_lists = len(total_cf_lists) - len(cf_lists)
-
-        self.logger.debug(
-            f"Number of CFPiHole lists in Cloudflare: {CustomFormatter.YELLOW}{len(cf_lists)}"
-        )
-        self.logger.debug(
-            f"Additional lists in Cloudflare: {CustomFormatter.YELLOW}{diff_cf_lists}"
-        )
-
-        # Compare the lists size
-        if len(unique_domains) == sum([l["count"] for l in cf_lists]):
-            self.logger.warning("Lists are the same size, stopping")
-            return []
-
-        # Check total lists do not exceed 300
-        elif (total_new_lists + diff_cf_lists) > 300:
-            self.logger.warning(
-                "Max of 300 lists allowed. Select smaller blocklists, stopping"
-            )
-            return []
-
-        # Manage existing Cloudflare policy and lists
-        cf_policies = cloudflare.get_firewall_policies(name_prefix)
-        if len(cf_policies) > 0:
-            cloudflare.delete_firewall_policy(cf_policies[0]["id"])
-
-        # Delete the lists
-        for l in cf_lists:
-            cloudflare.delete_list(l["id"], l["name"])
-
-            # Sleep to prevent rate limit
-            time.sleep(0.9)
-
-        # Create new lists with chunking
-        cf_lists = []
-
-        # Sleep to prevent rate limit
-        self.logger.warning("Pausing for 60 seconds to prevent rate limit, please wait")
-        time.sleep(60)
-
-        self.logger.info("Creating lists, please wait")
-
-        # Chunk the domains into lists of 1000 and create them
-        for chunk in self.chunk_list(unique_domains, 1000):
-            list_name = f"{name_prefix} {len(cf_lists) + 1}"
-            _list = cloudflare.create_list(list_name, chunk)
-            cf_lists.append(_list)
-
-            # Sleep to prevent rate limit
-            time.sleep(0.9)
-
-        # Setup TLD gateway policy
-        tld.create_policy_tld(self.tldlist)
-
-        # Manage firewall policy based on existing policies
-        self.logger.info(f"Number of policies in Cloudflare: {len(cf_policies)}")
-
-        # Setup the gateway policy
-        if len(cf_policies) == 0:
-            self.logger.info("Creating firewall policy")
-
-            cf_policies = cloudflare.create_gateway_policy(
-                f"{name_prefix}", [l["id"] for l in cf_lists]
-            )
-
-        elif len(cf_policies) != 1:
-            self.logger.error("More than one firewall policy found")
-            raise Exception("More than one firewall policy found")
-
-        else:
-            self.logger.info("Updating firewall policy")
-
-            cloudflare.update_gateway_policy(
-                f"{name_prefix}",
-                cf_policies[0]["id"],
-                [l["id"] for l in cf_lists],
-            )
+        # Create/Delete/Manage Cloudflare policies
+        cloudflare_config.delete_lists_policy(name_prefix, cf_lists)
+        cloudflare_config.create_lists_policy(name_prefix, unique_domains)
 
         self.logger.info(f"{CustomFormatter.GREEN}Done")
 
@@ -255,10 +186,6 @@ class App:
         self.logger.info(f"Number of domains: {CustomFormatter.YELLOW}{len(domains)}")
 
         return domains
-
-    def chunk_list(self, _list: List[str], n: int):
-        for i in range(0, len(_list), n):
-            yield _list[i : i + n]
 
 
 if __name__ == "__main__":

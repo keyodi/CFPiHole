@@ -79,18 +79,16 @@ def get_firewall_policies(name_prefix: str):
     return [l for l in data if l["name"].startswith(name_prefix)]
 
 
-def delete_firewall_policy(policy_id: str):
+def delete_firewall_policy(name_prefix: str, policy_id: str):
     """
     Deletes a firewall policy by its ID.
     """
     api_call(session.delete, f"rules/{policy_id}")
-    logger.debug(f"Deleted policy {policy_id}")
+    logger.info(f"Deleted policy {name_prefix}")
 
 
-def _create_gateway_policy(
-    method,
+def create_gateway_policy(
     name: str,
-    policy_id: str = None,
     list_ids: List[str] = None,
     regex_tld: str = None,
 ):
@@ -102,10 +100,10 @@ def _create_gateway_policy(
         if list_ids
         else f'not(any(dns.domains[*] matches "{regex_tld}"))'
     )
-    endpoint = f"rules/{policy_id}" if policy_id else "rules"
+    endpoint = "rules"
     block_page = bool(regex_tld)
     data = api_call(
-        method,
+        session.post,
         endpoint,
         json={
             "name": name,
@@ -117,33 +115,5 @@ def _create_gateway_policy(
             "rule_settings": {"block_page_enabled": block_page},
         },
     )
-
+    logger.info(f"Created firewall policy: {name}")
     return data
-
-
-def create_gateway_policy(name: str, list_ids: List[str]):
-    """
-    Creates a gateway policy blocking domains in the specified lists.
-    """
-    return _create_gateway_policy(session.post, name, list_ids=list_ids)
-
-
-def update_gateway_policy(name: str, policy_id: str, list_ids: List[str]):
-    """
-    Updates a gateway policy with new blocking logic based on list IDs.
-    """
-    return _create_gateway_policy(session.put, name, policy_id=policy_id, list_ids=list_ids)
-
-
-def create_gateway_policy_tld(name: str, regex_tld: str):
-    """
-    Creates a gateway policy blocking domains in the specified lists.
-    """
-    return _create_gateway_policy(session.post, name, regex_tld=regex_tld)
-
-
-def update_gateway_policy_tld(name: str, policy_id: str, regex_tld: str):
-    """
-    Updates a gateway policy with new blocking logic based on list IDs.
-    """
-    return _create_gateway_policy(session.put, name, policy_id=policy_id, regex_tld=regex_tld)
