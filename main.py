@@ -17,23 +17,11 @@ class App:
 
 
     def _load_file(self, filename):
-        name_prefix_tld = "[CFPihole] Block TLDs"
-
         if os.path.exists(filename):
             with open(filename, "r") as file:
                 data = [line.strip() for line in file.readlines() if line.strip()]
 
-            if data and "tldlist" in filename:
-                # Setup TLD gateway policy
-                cloudflare_config.create_firewall_policy(name_prefix_tld, data)
-            if not data and "tldlist" in filename:
-                # Delete TLD gateway policy if file is empty
-                cloudflare_config.delete_firewall_policy(name_prefix_tld)
-
-                return []
-
             return data
-
         else:
             self.logger.warning(f"Missing {filename}, skipping")
 
@@ -43,6 +31,7 @@ class App:
     def run(self):
         """Fetches domains, creates lists, and manages firewall policies."""
         name_prefix = "[CFPihole] Block Ads"
+        name_prefix_tld = "[CFPihole] Block TLDs"
         file_path_config = "config.ini"
 
         # Ensure tmp directory exists
@@ -101,6 +90,11 @@ class App:
             return []
 
         # Create/Delete/Manage Cloudflare policies
+        if self.tldlist:
+            cloudflare_config.create_firewall_policy(name_prefix_tld, self.tldlist)
+        else:
+            cloudflare_config.delete_firewall_policy(name_prefix_tld)
+
         cloudflare_config.delete_lists_policy(name_prefix, cf_lists)
         cloudflare_config.create_lists_policy(name_prefix, unique_domains)
 
