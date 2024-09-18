@@ -8,9 +8,8 @@ logger = CustomFormatter.configure_logger("cloudflare_setup")
 
 
 def get_firewall_polcy(name_prefix: str):
-    cf_lists, total_cf_lists = cloudflare_api.get_lists(name_prefix)
 
-    return cf_lists, total_cf_lists
+    return cloudflare_api.get_lists(name_prefix)
 
 
 def create_firewall_policy(
