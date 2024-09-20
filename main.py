@@ -63,7 +63,7 @@ class App:
             )
 
             # Check list size and limits
-            cf_lists, total_cf_lists = cloudflare_config.get_firewall_polcy(name_prefix)
+            cf_lists, total_cf_lists = cloudflare_config.get_block_lists(name_prefix)
 
             diff_cf_lists = len(total_cf_lists) - len(cf_lists)
 

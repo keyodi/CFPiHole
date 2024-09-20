@@ -7,7 +7,7 @@ import time
 logger = CustomFormatter.configure_logger("cloudflare_setup")
 
 
-def get_firewall_polcy(name_prefix: str):
+def get_block_lists(name_prefix: str):
 
     return cloudflare_api.get_lists(name_prefix)
 
