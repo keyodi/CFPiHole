@@ -3,10 +3,10 @@ import logging
 
 class CustomFormatter(logging.Formatter):
     COLOR_CODES = {
-        logging.DEBUG: "\x1b[38;20m",  # Grey
-        logging.INFO: "\x1b[38;20m",  # Grey (same as debug for consistency)
+        logging.DEBUG: "\x1b[38;20m",    # Grey
+        logging.INFO: "\x1b[38;20m",     # Grey (same as debug for consistency)
         logging.WARNING: "\x1b[33;20m",  # Yellow
-        logging.ERROR: "\x1b[31;20m",  # Red
+        logging.ERROR: "\x1b[31;20m",    # Red
         logging.CRITICAL: "\x1b[31;1m",  # Bold Red
     }
     RESET = "\x1b[0m"
@@ -15,13 +15,16 @@ class CustomFormatter(logging.Formatter):
     FORMAT = "%(message)s"
 
     def format(self, record):
-        log_fmt = f"{self.COLOR_CODES.get(record.levelno)}{self.FORMAT}{self.RESET}"
+        color = self.COLOR_CODES.get(record.levelno, self.RESET)
+        log_fmt = f"{color}{self.FORMAT}{self.RESET}"
         return logging.Formatter(log_fmt).format(record)
 
     @staticmethod
     def configure_logger(name: str, level=logging.INFO):
         logger = logging.getLogger(name)
-        logger.setLevel(level)
+
+        if not logger.hasHandlers():  # Avoid adding handlers multiple times
+            logger.setLevel(level)
 
         # Create a console handler with custom formatter
         console_handler = logging.StreamHandler()
