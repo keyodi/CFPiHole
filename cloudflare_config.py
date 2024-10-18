@@ -11,18 +11,20 @@ def get_block_lists(name_prefix: str):
 
     return cloudflare_api.get_lists(name_prefix)
 
+
 def get_gateway_policies(name_prefix: str):
-    # Get existing policies
+    """Gets blocking policies with defined name prefix in cloudflare_api."""
+
     cf_policies = cloudflare_api.get_firewall_policies(name_prefix)
 
     return cf_policies, len(cf_policies)
+
 
 def create_firewall_policy(
     name_prefix: str, list_ids: List[str] = None, regex_tld: str = None
 ):
     """Creates or updates a blocking policy in cloudflare_api."""
 
-    # Get number of existing policies
     cf_policies, num_policies = get_gateway_policies(name_prefix)
 
     if "TLDs" in name_prefix:
@@ -47,6 +49,7 @@ def create_firewall_policy(
 
 def delete_firewall_policy(name_prefix: str):
     """Deletes a blocking policy from Cloudflare."""
+
     cf_policies, num_policies = get_gateway_policies(name_prefix)
 
     if num_policies == 0:
@@ -62,6 +65,7 @@ def delete_firewall_policy(name_prefix: str):
 
 def delete_lists_policy(name_prefix: str, cf_lists: List[str]):
     """Deletes the blocking policy and then the lists in cloudflare_api."""
+
     delete_firewall_policy(name_prefix)
 
     for l in cf_lists:

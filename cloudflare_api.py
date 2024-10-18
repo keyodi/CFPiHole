@@ -8,9 +8,9 @@ import os
 # Load environment variables
 load_dotenv()
 
-# Credentials check (moved outside session creation)
 CF_API_TOKEN = os.getenv("CF_API_TOKEN") or os.environ.get("CF_API_TOKEN")
 CF_IDENTIFIER = os.getenv("CF_IDENTIFIER") or os.environ.get("CF_IDENTIFIER")
+# Credentials check (moved outside session creation)
 if not CF_API_TOKEN or not CF_IDENTIFIER:
     raise Exception("Missing Cloudflare credentials")
 
@@ -22,9 +22,8 @@ session.headers.update({"Authorization": f"Bearer {CF_API_TOKEN}"})
 
 
 def api_call(method, endpoint, json=None):
-    """
-    Makes an API call with error handling and logging.
-    """
+    """Makes an API call with error handling and logging."""
+
     url = f"https://api.cloudflare.com/client/v4/accounts/{CF_IDENTIFIER}/gateway/{endpoint}"
     response = method(url, json=json)
     response.raise_for_status()
@@ -35,18 +34,16 @@ def api_call(method, endpoint, json=None):
 
 
 def get_lists(name_prefix: str):
-    """
-    Retrieves lists with a specific name prefix.
-    """
+    """Retrieves lists with a specific name prefix."""
+
     data = api_call(session.get, "lists")
 
     return [l for l in data if l["name"].startswith(name_prefix)], data
 
 
 def create_list(name: str, domains: List[str]):
-    """
-    Creates a new list with the specified name and domains.
-    """
+    """Creates a new list with the specified name and domains."""
+
     data = api_call(
         session.post,
         "lists",
@@ -63,26 +60,23 @@ def create_list(name: str, domains: List[str]):
 
 
 def delete_list(list_id: str, name: str):
-    """
-    Deletes a list by its ID.
-    """
+    """Deletes a list by its ID."""
+
     api_call(session.delete, f"lists/{list_id}")
     logger.info(f"Deleted list {name}")
 
 
 def get_firewall_policies(name_prefix: str):
-    """
-    Retrieves firewall policies with a specific name prefix.
-    """
+    """Retrieves firewall policies with a specific name prefix."""
+
     data = api_call(session.get, "rules")
 
     return [l for l in data if l["name"].startswith(name_prefix)]
 
 
 def delete_firewall_policy(name_prefix: str, policy_id: str):
-    """
-    Deletes a firewall policy by its ID.
-    """
+    """Deletes a firewall policy by its ID."""
+
     api_call(session.delete, f"rules/{policy_id}")
     logger.info(f"Deleted policy {name_prefix}")
 
@@ -92,9 +86,8 @@ def create_gateway_policy(
     list_ids: List[str] = None,
     regex_tld: str = None,
 ):
-    """
-    Creates a gateway policy with blocking logic based on list IDs.
-    """
+    """Creates a gateway policy with blocking logic based on list IDs."""
+
     traffic = (
         "or".join([f"any(dns.domains[*] in ${l})" for l in list_ids])
         if list_ids

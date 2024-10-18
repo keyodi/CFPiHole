@@ -30,6 +30,7 @@ class App:
 
     def run(self):
         """Fetches domains, creates lists, and manages firewall policies."""
+
         name_prefix = "[CFPihole] Block Ads"
         name_prefix_tld = "[CFPihole] Block TLDs"
         file_path_config = "config.ini"
@@ -102,15 +103,7 @@ class App:
 
 
     def download_file(self, url, name):
-        """Downloads a file from the given URL and saves it to the temporary directory.
-
-        Args:
-            url: URL of the file to download.
-            name: Name to use for the downloaded file.
-
-        Returns:
-            str: Path to the downloaded file.
-        """
+        """Downloads a file from the given URL and saves it to the temporary directory."""
 
         self.logger.info(f"Downloading file from {url}")
 
@@ -128,14 +121,7 @@ class App:
 
 
     def convert_to_domain_list(self, file_name: str):
-        """Converts a downloaded list or hosts file to a list of domains.
-
-        Args:
-            file_name: Name of the downloaded list file.
-
-        Returns:
-            list: List of extracted domains from the file.
-        """
+        """Converts a downloaded list or hosts file to a list of domains."""
 
         # Combine path elements
         file_path = os.path.join("tmp", file_name)
