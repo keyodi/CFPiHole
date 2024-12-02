@@ -79,8 +79,8 @@ def create_lists_policy(name_prefix: str, unique_domains: List[str]):
     """Creates new lists with chunking and handles rate limits."""
 
     # Sleep to prevent rate limit
-    logger.warning("Pausing for 60 seconds to prevent rate limit, please wait")
-    time.sleep(60)
+    logger.warning("Pausing for 120 seconds to prevent rate limit, please wait")
+    time.sleep(120)
 
     logger.info("Creating lists, please wait")
 
