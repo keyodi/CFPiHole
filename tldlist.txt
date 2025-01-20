@@ -1,5 +1,6 @@
-.com
-.net
 .org
+.net
+.com
 .gov
+.edu
 .us
