@@ -1,0 +1,8 @@
+one.one.one.one
+sparrow.cloudflare.com
+cloudflareinsights.com
+static.cloudflareinsights.com
+blocked.teams.cloudflare.com
+tr.www.cloudflare.com
+csp-reporting.cloudflare.com
+a.nel.cloudflare.com

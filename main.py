@@ -142,7 +142,7 @@ class App:
                 continue
 
             # Skip if TLD is not in the list
-            if self.tldlist and not line.endswith(tuple(self.tldlist)):
+            if self.tldlist and line.endswith(tuple(self.tldlist)):
                 continue
 
             if is_hosts_file:

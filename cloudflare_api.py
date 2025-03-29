@@ -91,7 +91,7 @@ def create_gateway_policy(
     traffic = (
         "or".join([f"any(dns.domains[*] in ${l})" for l in list_ids])
         if list_ids
-        else f'not(any(dns.domains[*] matches "{regex_tld}"))'
+        else f'(any(dns.domains[*] matches "{regex_tld}"))'
     )
     endpoint = "rules"
     block_page = bool(regex_tld)
