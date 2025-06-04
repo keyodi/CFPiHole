@@ -38,58 +38,64 @@ class App:
         # Ensure tmp directory exists
         os.makedirs("./tmp", exist_ok=True)
 
-        if os.path.exists(file_path_config):
+        try:
             config = configparser.ConfigParser()
-            config.read(file_path_config)
-
-            all_domains = []
-            for domain_list in config["Lists"]:
-                self.logger.debug(f"Setting list {domain_list}")
-
-                self.download_file(config["Lists"][domain_list], domain_list)
-                domains = self.convert_to_domain_list(domain_list)
-                all_domains.extend(domains)
-
-            unique_domains = list(set(all_domains))
-            total_new_lists = ceil(len(unique_domains) / 1000)
-
-            self.logger.debug(
-                f"Total not unique domains:{CustomFormatter.YELLOW} {len(all_domains)}"
-            )
-            self.logger.info(
-                f"Total count of unique domains in list: {CustomFormatter.GREEN}{(len(unique_domains))}"
-            )
-            self.logger.info(
-                f"Total lists to create: {CustomFormatter.GREEN}{total_new_lists}"
-            )
-
-            # Check list size and limits
-            cf_lists, total_cf_lists = cloudflare_config.get_block_lists(name_prefix)
-
-            diff_cf_lists = len(total_cf_lists) - len(cf_lists)
-
-            self.logger.debug(
-                f"Number of CFPiHole lists in Cloudflare: {CustomFormatter.YELLOW}{len(cf_lists)}"
-            )
-            self.logger.debug(
-                f"Additional lists in Cloudflare: {CustomFormatter.YELLOW}{diff_cf_lists}"
-            )
-
-            # Compare the lists size
-            if len(unique_domains) == sum([l["count"] for l in cf_lists]):
-                self.logger.warning("Lists are the same size, stopping")
-                return []
-
-            # Check total lists do not exceed 300
-            elif (total_new_lists + diff_cf_lists) > 300:
-                self.logger.warning(
-                    "Max of 300 lists allowed. Select smaller blocklists, stopping"
-                )
-                return []
-        else:
+            with open(file_path_config, "r") as file:
+                config.read(file_path_config)
+        except FileNotFoundError:
             self.logger.error(f"{file_path_config} does not exist, stopping")
             return []
+        except configparser.DuplicateOptionError as e:
+            self.logger.error(
+                f"Error: Duplicate option '{e.option}' found in section '{e.section}' (Line {e.lineno})"
+            )
+            return []
 
+        all_domains = []
+        for domain_list in config["Lists"]:
+            self.logger.debug(f"Setting list {domain_list}")
+
+            self.download_file(config["Lists"][domain_list], domain_list)
+            domains = self.convert_to_domain_list(domain_list)
+            all_domains.extend(domains)
+
+        unique_domains = list(set(all_domains))
+        total_new_lists = ceil(len(unique_domains) / 1000)
+
+        self.logger.debug(
+            f"Total not unique domains:{CustomFormatter.YELLOW} {len(all_domains)}"
+        )
+        self.logger.info(
+            f"Total count of unique domains in list: {CustomFormatter.GREEN}{(len(unique_domains))}"
+        )
+        self.logger.info(
+            f"Total lists to create: {CustomFormatter.GREEN}{total_new_lists}"
+        )
+
+        # Check list size and limits
+        cf_lists, total_cf_lists = cloudflare_config.get_block_lists(name_prefix)
+
+        diff_cf_lists = len(total_cf_lists) - len(cf_lists)
+
+        self.logger.debug(
+            f"Number of CFPiHole lists in Cloudflare: {CustomFormatter.YELLOW}{len(cf_lists)}"
+        )
+        self.logger.debug(
+            f"Additional lists in Cloudflare: {CustomFormatter.YELLOW}{diff_cf_lists}"
+        )
+
+        # Compare the lists size
+        if len(unique_domains) == sum([l["count"] for l in cf_lists]):
+            self.logger.warning("Lists are the same size, stopping")
+            return []
+
+        # Check total lists do not exceed 300
+        elif (total_new_lists + diff_cf_lists) > 300:
+            self.logger.warning(
+                "Max of 300 lists allowed. Select smaller blocklists, stopping"
+            )
+            return []
+       
         # Create/Delete/Manage Cloudflare policies
         if self.tldlist:
             cloudflare_config.create_firewall_policy(name_prefix_tld, self.tldlist)
