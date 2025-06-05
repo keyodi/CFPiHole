@@ -54,7 +54,7 @@ def create_list(name: str, domains: List[str]):
             "items": [{"value": d} for d in domains],
         },
     )
-    logger.info(f"Created list {name}")
+    logger.debug(f"Created list {name}")
 
     return data
 
@@ -63,7 +63,7 @@ def delete_list(list_id: str, name: str):
     """Deletes a list by its ID."""
 
     api_call(session.delete, f"lists/{list_id}")
-    logger.info(f"Deleted list {name}")
+    logger.debug(f"Deleted list {name}")
 
 
 def get_firewall_policies(name_prefix: str):
