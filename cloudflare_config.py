@@ -67,6 +67,7 @@ def delete_lists_policy(name_prefix: str, cf_lists: List[str]):
     """Deletes the blocking policy and then the lists in cloudflare_api."""
 
     delete_firewall_policy(name_prefix)
+    logger.info("Deleting lists, please wait")
 
     for l in cf_lists:
         cloudflare_api.delete_list(l["id"], l["name"])
