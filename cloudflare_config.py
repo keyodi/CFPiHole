@@ -67,7 +67,7 @@ def delete_lists_policy(name_prefix: str, cf_lists: List[str]):
     """Deletes the blocking policy and then the lists in cloudflare_api."""
 
     delete_firewall_policy(name_prefix)
-    logger.info("Deleting lists, please wait")
+    logger.info(f"{CustomFormatter.YELLOW} Deleting lists, please wait")
 
     for l in cf_lists:
         cloudflare_api.delete_list(l["id"], l["name"])
@@ -83,7 +83,7 @@ def create_lists_policy(name_prefix: str, unique_domains: List[str]):
     #logger.warning("Pausing for 60 seconds to prevent rate limit, please wait")
     #time.sleep(60)
 
-    logger.info("Creating lists, please wait")
+    logger.info(f"{CustomFormatter.YELLOW} Creating lists, please wait")
 
     cf_lists = []
     # Chunk the domains into lists of 1000 and create them
