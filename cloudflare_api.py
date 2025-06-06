@@ -24,13 +24,24 @@ session.headers.update({"Authorization": f"Bearer {CF_API_TOKEN}"})
 def api_call(method, endpoint, json=None):
     """Makes an API call with error handling and logging."""
 
-    url = f"https://api.cloudflare.com/client/v4/accounts/{CF_IDENTIFIER}/gateway/{endpoint}"
-    response = method(url, json=json)
-    response.raise_for_status()
+    try:
+        url = f"https://api.cloudflare.com/client/v4/accounts/{CF_IDENTIFIER}/gateway/{endpoint}"
+        response = method(url, json=json)
+        response.raise_for_status()
+        logger.debug(f"[{endpoint}] {response.status_code}")
 
-    logger.debug(f"[{endpoint}] {response.status_code}")
+        return response.json()["result"] if response.json() else []
 
-    return response.json()["result"] if response.json() else []
+    except requests.exceptions.HTTPError as http_err:
+        logger.error(f"HTTP error occurred - Response: {response.text} - Trying increasing sleep timer")
+    except requests.exceptions.RequestException as req_err:
+        logger.error(f"Request error occurred during API call to '{endpoint}': {req_err}")
+    except ValueError as json_err:
+        logger.error(f"Error decoding JSON response from '{endpoint}': {json_err}")
+    except Exception as err:
+        logger.error(f"An unexpected error occurred during API call to '{endpoint}': {err}")
+
+    return []
 
 
 def get_lists(name_prefix: str):
