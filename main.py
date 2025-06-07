@@ -12,19 +12,16 @@ class App:
         # Configure logging
         self.logger = CustomFormatter.configure_logger("main")
 
-        self.whitelist = self._load_file("whitelist.txt")
-        self.tldlist = self._load_file("tldlist.txt")
+        self.whitelist = set(self._load_file("whitelist.txt"))
+        self.tldlist = set(self._load_file("tldlist.txt"))
 
 
     def _load_file(self, filename):
         if os.path.exists(filename):
             with open(filename, "r") as file:
-                data = [line.strip() for line in file.readlines() if line.strip()]
-
-            return data
+                return [line.strip() for line in file if line.strip()]
         else:
             self.logger.warning(f"Missing {filename}, skipping")
-
             return []
 
 
@@ -40,7 +37,7 @@ class App:
 
         try:
             config = configparser.ConfigParser()
-            with open(file_path_config, "r") as file:
+            with open(file_path_config, "r"):
                 config.read(file_path_config)
         except FileNotFoundError:
             self.logger.error(f"{file_path_config} does not exist, stopping")
