@@ -1,7 +1,7 @@
 from typing import List
 from math import ceil
 from logger_config import CustomFormatter
-import os
+from pathlib import Path
 import requests
 import cloudflare_config
 import configparser
@@ -31,7 +31,8 @@ class App:
         file_path_config = "config.ini"
 
         # Ensure tmp directory exists
-        os.makedirs("./tmp", exist_ok=True)
+        tmp_dir = Path("./tmp")
+        tmp_dir.mkdir(exist_ok=True)
 
         config = configparser.ConfigParser()
         try:
@@ -114,19 +115,19 @@ class App:
         response.raise_for_status()
 
         # Save the downloaded content to the temporary directory
-        file_path = os.path.join("tmp", name)
-        with open(file_path, "wb") as file:
+        file_path = Path("tmp") / name
+        with file_path.open("wb") as file:
             file.write(response.content)
 
-        self.logger.info(f"File size: {os.path.getsize(file_path) / (1024):.0f} KB")
+        self.logger.info(f"File size: {file_path.stat().st_size / (1024):.0f} KB")
 
     def convert_to_domain_list(self, file_name: str):
         """Converts a downloaded list or hosts file to a list of domains."""
 
         # Combine path elements
-        file_path = os.path.join("tmp", file_name)
+        file_path = Path("tmp") / file_name
 
-        with open(file_path, "r") as file:
+        with file_path.open("r") as file:
             data = file.read()
 
         # Check if the file is a hosts file or a list of domains
