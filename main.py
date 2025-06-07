@@ -12,23 +12,13 @@ class App:
         # Configure logging
         self.logger = CustomFormatter.configure_logger("main")
 
-        self.whitelist = self._load_file("whitelist.txt")
-        self.tldlist = self._load_file("tldlist.txt")
-
-    def _load_file(self, filename):
-        try:
-            with open(filename, "r") as file:
-                return {line.strip() for line in file if line.strip()}
-        except FileNotFoundError:
-            self.logger.warning(f"Missing {filename}, skipping")
-            return set()
-
     def run(self):
         """Fetches domains, creates lists, and manages firewall policies."""
 
         name_prefix = "[CFPihole] Block Ads"
         name_prefix_tld = "[CFPihole] Block TLDs"
         file_path_config = "config.ini"
+        self.tldlist = ""
 
         # Ensure tmp directory exists
         tmp_dir = Path("./tmp")
@@ -40,7 +30,9 @@ class App:
             if not config.sections():
                 raise FileNotFoundError
         except FileNotFoundError:
-            self.logger.error(f"Error: {file_path_config} does not exist or is empty, stopping")
+            self.logger.error(
+                f"Error: {file_path_config} does not exist or is empty, stopping"
+            )
             return []
         except configparser.DuplicateOptionError as e:
             self.logger.error(
@@ -53,8 +45,13 @@ class App:
             self.logger.debug(f"Setting list {domain_list}")
 
             self.download_file(config["Lists"][domain_list], domain_list)
-            domains = self.convert_to_domain_list(domain_list)
-            all_domains.extend(domains)
+            if "tld" in domain_list.lower():
+                self.tldlist = self.parse_tld_file(domain_list)
+
+        for domain_list in config["Lists"]:
+            if "tld" not in domain_list.lower():
+                domains = self.convert_to_domain_list(domain_list)
+                all_domains.extend(domains)
 
         unique_domains = list(set(all_domains))
         total_new_lists = ceil(len(unique_domains) / 1000)
@@ -128,6 +125,30 @@ class App:
 
         self.logger.info(f"File size: {file_path.stat().st_size / (1024):.0f} KB")
 
+    def parse_tld_file(self, filename):
+        """Parse Adblock-formatted TLDs from the downloaded file in tmp/."""
+        file_path = Path("tmp") / filename
+        tlds = set()
+        if not file_path.exists():
+            self.logger.warning(f"Missing {file_path}, skipping")
+            return tlds
+        with file_path.open("r") as file:
+            for line in file:
+                line = line.strip()
+                if not line or line.startswith(("!", "#", ";", "//")):
+                    continue
+                line = line.split("#")[0].split("//")[0].strip()
+                if line.startswith("||"):
+                    line = line[2:]
+                if line.endswith("^"):
+                    line = line[:-1]
+                if line:
+                    tlds.add(line)
+        self.logger.info(
+            f"Number of TLDs from remote list: {CustomFormatter.GREEN}{len(tlds)}"
+        )
+        return tlds
+
     def convert_to_domain_list(self, file_name: str):
         """Converts a downloaded list or hosts file to a list of domains."""
 
@@ -167,15 +188,12 @@ class App:
             if self.tldlist and domain.endswith(tuple(self.tldlist)):
                 continue
 
-            # Check whitelist
-            if domain in self.whitelist:
-                continue
-
             domains.append(domain)
 
         self.logger.info(f"Number of domains: {CustomFormatter.YELLOW}{len(domains)}")
 
         return domains
+
 
 if __name__ == "__main__":
     app = App()
