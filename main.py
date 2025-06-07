@@ -15,15 +15,13 @@ class App:
         self.whitelist = set(self._load_file("whitelist.txt"))
         self.tldlist = set(self._load_file("tldlist.txt"))
 
-
     def _load_file(self, filename):
-        if os.path.exists(filename):
+        try:
             with open(filename, "r") as file:
                 return [line.strip() for line in file if line.strip()]
-        else:
+        except FileNotFoundError:
             self.logger.warning(f"Missing {filename}, skipping")
             return []
-
 
     def run(self):
         """Fetches domains, creates lists, and manages firewall policies."""
@@ -35,12 +33,13 @@ class App:
         # Ensure tmp directory exists
         os.makedirs("./tmp", exist_ok=True)
 
+        config = configparser.ConfigParser()
         try:
-            config = configparser.ConfigParser()
-            with open(file_path_config, "r"):
-                config.read(file_path_config)
+            config.read(file_path_config)
+            if not config.sections():
+                raise FileNotFoundError
         except FileNotFoundError:
-            self.logger.error(f"{file_path_config} does not exist, stopping")
+            self.logger.error(f"Error: {file_path_config} does not exist, stopping")
             return []
         except configparser.DuplicateOptionError as e:
             self.logger.error(
@@ -92,7 +91,7 @@ class App:
                 "Max of 300 lists allowed. Select smaller blocklists, stopping"
             )
             return []
-       
+
         # Create/Delete/Manage Cloudflare policies
         if self.tldlist:
             cloudflare_config.create_firewall_policy(name_prefix_tld, self.tldlist)
@@ -103,7 +102,6 @@ class App:
         cloudflare_config.create_lists_policy(name_prefix, unique_domains)
 
         self.logger.info(f"{CustomFormatter.GREEN}Done")
-
 
     def download_file(self, url, name):
         """Downloads a file from the given URL and saves it to the temporary directory."""
@@ -122,7 +120,6 @@ class App:
 
         self.logger.info(f"File size: {os.path.getsize(file_path) / (1024):.0f} KB")
 
-
     def convert_to_domain_list(self, file_name: str):
         """Converts a downloaded list or hosts file to a list of domains."""
 
@@ -134,7 +131,7 @@ class App:
 
         # Check if the file is a hosts file or a list of domains
         is_hosts_file = any(
-            ip in data for ip in ["localhost ", "127.0.0.1 ", "::1 ", "0.0.0.0 "]
+            ip in data[:50] for ip in ["localhost ", "127.0.0.1 ", "::1 ", "0.0.0.0 "]
         )
 
         domains = []
