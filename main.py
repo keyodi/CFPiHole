@@ -12,16 +12,16 @@ class App:
         # Configure logging
         self.logger = CustomFormatter.configure_logger("main")
 
-        self.whitelist = set(self._load_file("whitelist.txt"))
-        self.tldlist = set(self._load_file("tldlist.txt"))
+        self.whitelist = self._load_file("whitelist.txt")
+        self.tldlist = self._load_file("tldlist.txt")
 
     def _load_file(self, filename):
         try:
             with open(filename, "r") as file:
-                return [line.strip() for line in file if line.strip()]
+                return {line.strip() for line in file if line.strip()}
         except FileNotFoundError:
             self.logger.warning(f"Missing {filename}, skipping")
-            return []
+            return set()
 
     def run(self):
         """Fetches domains, creates lists, and manages firewall policies."""
@@ -40,7 +40,7 @@ class App:
             if not config.sections():
                 raise FileNotFoundError
         except FileNotFoundError:
-            self.logger.error(f"Error: {file_path_config} does not exist, stopping")
+            self.logger.error(f"Error: {file_path_config} does not exist or is empty, stopping")
             return []
         except configparser.DuplicateOptionError as e:
             self.logger.error(
@@ -131,26 +131,23 @@ class App:
     def convert_to_domain_list(self, file_name: str):
         """Converts a downloaded list or hosts file to a list of domains."""
 
-        # Combine path elements
         file_path = Path("tmp") / file_name
 
         with file_path.open("r") as file:
-            data = file.read()
+            data = file.readlines()
 
-        # Check if the file is a hosts file or a list of domains
+        # Check first 50 lines for hosts file indicator
+        lines_to_check = data[:50]
         is_hosts_file = any(
-            ip in data[:50] for ip in ["localhost ", "127.0.0.1 ", "::1 ", "0.0.0.0 "]
+            any(ip in line for ip in ["localhost ", "127.0.0.1 ", "::1 ", "0.0.0.0 "])
+            for line in lines_to_check
         )
 
         domains = []
 
-        for line in data.splitlines():
+        for line in data:
             # Skip comments and empty lines
             if line.startswith(("#", ";")) or not line.strip():
-                continue
-
-            # Skip if TLD is not in the list
-            if self.tldlist and line.endswith(tuple(self.tldlist)):
                 continue
 
             if is_hosts_file:
@@ -166,6 +163,10 @@ class App:
             else:
                 domain = line.rstrip()
 
+            # Skip if TLD is not in the list
+            if self.tldlist and domain.endswith(tuple(self.tldlist)):
+                continue
+
             # Check whitelist
             if domain in self.whitelist:
                 continue
@@ -175,7 +176,6 @@ class App:
         self.logger.info(f"Number of domains: {CustomFormatter.YELLOW}{len(domains)}")
 
         return domains
-
 
 if __name__ == "__main__":
     app = App()
