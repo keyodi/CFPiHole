@@ -104,15 +104,22 @@ class App:
 
         self.logger.info(f"{CustomFormatter.GREEN}Done")
 
-    def download_file(self, url, name):
+    def download_file(self, url, name, timeout=15):
         """Downloads a file from the given URL and saves it to the temporary directory."""
 
         self.logger.info(f"Downloading file from {url}")
 
-        # Download the file and handle potential errors
-        response = requests.get(url, allow_redirects=True)
-        # Raise exception for non-200 status codes
-        response.raise_for_status()
+        try:
+            # Download the file and handle potential errors
+            response = requests.get(url, allow_redirects=True, timeout=timeout)
+            # Raise exception for non-200 status codes
+            response.raise_for_status()
+        except requests.Timeout:
+            self.logger.error(f"Timeout occurred while downloading {url}")
+            return
+        except requests.RequestException as e:
+            self.logger.error(f"Error downloading {url}: {e}")
+            return
 
         # Save the downloaded content to the temporary directory
         file_path = Path("tmp") / name
