@@ -144,10 +144,9 @@ class App:
             self.logger.warning(f"Missing {file_path}, skipping")
             return tlds
         with file_path.open("r") as file:
-            lines = file.readlines()
-            for line in lines[1:]:
+            for line in file:
                 line = line.strip()
-                if not line or line.startswith(("!", "#", ";", "//")):
+                if not line or line.startswith(("!", "#", ";", "//", "[")):
                     continue
                 line = line.split("#")[0].split("//")[0].strip()
                 if line.startswith("||"):
