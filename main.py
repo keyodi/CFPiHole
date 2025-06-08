@@ -53,6 +53,8 @@ class App:
         for tld_file in tld_files:
             self.tldlist = self.parse_tld_file(tld_file)
             break
+        # Always block cn, ru, and xyz
+        self.tldlist.update({"xyz", "cn", "ru"})
 
         # Parse other domain lists
         for domain_list in other_files:
