@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Set
 from math import ceil
 from logger_config import CustomFormatter
 from pathlib import Path
@@ -18,7 +18,7 @@ class App:
         name_prefix = "[CFPihole] Block Ads"
         name_prefix_tld = "[CFPihole] Block TLDs"
         file_path_config = "config.ini"
-        self.tldlist = ""
+        self.tldlist: Set[str] = set()
 
         # Ensure tmp directory exists
         tmp_dir = Path("./tmp")
@@ -33,34 +33,39 @@ class App:
             self.logger.error(
                 f"Error: {file_path_config} does not exist or is empty, stopping"
             )
-            return []
+            return
         except configparser.DuplicateOptionError as e:
             self.logger.error(
                 f"Error: Duplicate option '{e.option}' found in section '{e.section}' (Line {e.lineno})"
             )
-            return []
+            return
 
-        all_domains = []
+        all_domains = set()
+        tld_files = [name for name in config["Lists"] if "tld" in name.lower()]
+        other_files = [name for name in config["Lists"] if "tld" not in name.lower()]
+
+        # Download all files first
         for domain_list in config["Lists"]:
             self.logger.debug(f"Setting list {domain_list}")
-
             self.download_file(config["Lists"][domain_list], domain_list)
-            if "tld" in domain_list.lower():
-                self.tldlist = self.parse_tld_file(domain_list)
 
-        for domain_list in config["Lists"]:
-            if "tld" not in domain_list.lower():
-                domains = self.convert_to_domain_list(domain_list)
-                all_domains.extend(domains)
+        # Only one TLD list expected
+        for tld_file in tld_files:
+            self.tldlist = self.parse_tld_file(tld_file)
+            break
 
-        unique_domains = list(set(all_domains))
+        # Parse other domain lists
+        for domain_list in other_files:
+            all_domains.update(self.convert_to_domain_list(domain_list))
+
+        unique_domains = list(all_domains)
         total_new_lists = ceil(len(unique_domains) / 1000)
 
         self.logger.debug(
             f"Total not unique domains:{CustomFormatter.YELLOW} {len(all_domains)}"
         )
         self.logger.info(
-            f"Total count of unique domains in list: {CustomFormatter.GREEN}{(len(unique_domains))}"
+            f"Total count of unique domains in list: {CustomFormatter.GREEN}{len(unique_domains)}"
         )
         self.logger.info(
             f"Total lists to create: {CustomFormatter.GREEN}{total_new_lists}"
@@ -68,7 +73,6 @@ class App:
 
         # Check list size and limits
         cf_lists, total_cf_lists = cloudflare_config.get_block_lists(name_prefix)
-
         diff_cf_lists = len(total_cf_lists) - len(cf_lists)
 
         self.logger.debug(
@@ -79,16 +83,16 @@ class App:
         )
 
         # Compare the lists size
-        if len(unique_domains) == sum([l["count"] for l in cf_lists]):
+        if len(unique_domains) == sum(l["count"] for l in cf_lists):
             self.logger.warning("Lists are the same size, stopping")
-            return []
+            return
 
         # Check total lists do not exceed 300
         elif (total_new_lists + diff_cf_lists) > 300:
             self.logger.warning(
                 "Max of 300 lists allowed. Select smaller blocklists, stopping"
             )
-            return []
+            return
 
         # Create/Delete/Manage Cloudflare policies
         if self.tldlist:
@@ -125,7 +129,7 @@ class App:
 
         self.logger.info(f"File size: {file_path.stat().st_size / (1024):.0f} KB")
 
-    def parse_tld_file(self, filename):
+    def parse_tld_file(self, filename) -> Set[str]:
         """Parse Adblock-formatted TLDs from the downloaded file in tmp/."""
         file_path = Path("tmp") / filename
         tlds = set()
@@ -149,7 +153,7 @@ class App:
         )
         return tlds
 
-    def convert_to_domain_list(self, file_name: str):
+    def convert_to_domain_list(self, file_name: str) -> List[str]:
         """Converts a downloaded list or hosts file to a list of domains."""
 
         file_path = Path("tmp") / file_name
@@ -158,31 +162,31 @@ class App:
             data = file.readlines()
 
         # Check first 50 lines for hosts file indicator
-        lines_to_check = data[:50]
         is_hosts_file = any(
             any(ip in line for ip in ["localhost ", "127.0.0.1 ", "::1 ", "0.0.0.0 "])
-            for line in lines_to_check
+            for line in data[:50]
         )
 
         domains = []
 
         for line in data:
             # Skip comments and empty lines
-            if line.startswith(("#", ";")) or not line.strip():
+            line = line.strip()
+            if line.startswith(("#", ";")) or not line:
                 continue
 
             if is_hosts_file:
                 # Remove the IP address and the trailing newline
                 parts = line.split()
                 if len(parts) > 1:
-                    domain = parts[1].rstrip()
+                    domain = parts[1]
                     # Skip the localhost entry
                     if domain == "localhost":
                         continue
                 else:
                     continue
             else:
-                domain = line.rstrip()
+                domain = line
 
             # Skip if TLD is not in the list
             if self.tldlist and domain.endswith(tuple(self.tldlist)):
