@@ -133,13 +133,15 @@ class App:
 
     def parse_tld_file(self, filename) -> Set[str]:
         """Parse Adblock-formatted TLDs from the downloaded file in tmp/."""
+        
         file_path = Path("tmp") / filename
         tlds = set()
         if not file_path.exists():
             self.logger.warning(f"Missing {file_path}, skipping")
             return tlds
         with file_path.open("r") as file:
-            for line in file:
+            lines = file.readlines()
+            for line in lines[1:]:
                 line = line.strip()
                 if not line or line.startswith(("!", "#", ";", "//")):
                     continue
