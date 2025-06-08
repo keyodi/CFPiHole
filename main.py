@@ -19,11 +19,10 @@ class App:
     def __init__(self):
         # Configure logging
         self.logger = CustomFormatter.configure_logger("main")
+        self.tldlist: Set[str] = set()
 
     def run(self):
         """Fetches domains, creates lists, and manages firewall policies."""
-
-        self.tldlist: Set[str] = set()
 
         # Ensure tmp directory exists
         TMP_DIR_PATH.mkdir(exist_ok=True)
@@ -46,7 +45,7 @@ class App:
 
         all_domains = set()
         tld_files = [name for name in config["Lists"] if "tld" in name.lower()]
-        other_files = [name for name in config["Lists"] if "tld" not in name.lower()]
+        block_files = [name for name in config["Lists"] if "tld" not in name.lower()]
 
         # Download all files first
         for domain_list in config["Lists"]:
@@ -54,14 +53,14 @@ class App:
             self.download_file(config["Lists"][domain_list], domain_list)
 
         # Only one TLD list expected
-        for tld_file in tld_files:
-            self.tldlist = self.parse_tld_file(tld_file)
-            break
+        if tld_files:
+            self.tldlist = self.parse_tld_file(tld_files[0])
+            
         # Always block specified TLDs
         self.tldlist.update(ALWAYS_BLOCKED_TLDS)
 
         # Parse other domain lists
-        for domain_list in other_files:
+        for domain_list in block_files:
             all_domains.update(self.convert_to_domain_list(domain_list))
 
         unique_domains = list(all_domains)
