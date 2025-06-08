@@ -6,6 +6,14 @@ import requests
 import cloudflare_config
 import configparser
 
+# Constants
+NAME_PREFIX = "[CFPihole] Block Ads"
+NAME_PREFIX_TLD = "[CFPihole] Block TLDs"
+FILE_PATH_CONFIG = "config.ini"
+TMP_DIR_PATH = Path("./tmp")
+MAX_LISTS_ALLOWED = 300
+LIST_CHUNK_SIZE = 1000
+ALWAYS_BLOCKED_TLDS = {"xyz", "cn", "ru"}
 
 class App:
     def __init__(self):
@@ -15,23 +23,19 @@ class App:
     def run(self):
         """Fetches domains, creates lists, and manages firewall policies."""
 
-        name_prefix = "[CFPihole] Block Ads"
-        name_prefix_tld = "[CFPihole] Block TLDs"
-        file_path_config = "config.ini"
         self.tldlist: Set[str] = set()
 
         # Ensure tmp directory exists
-        tmp_dir = Path("./tmp")
-        tmp_dir.mkdir(exist_ok=True)
+        TMP_DIR_PATH.mkdir(exist_ok=True)
 
         config = configparser.ConfigParser()
         try:
-            config.read(file_path_config)
+            config.read(FILE_PATH_CONFIG)
             if not config.sections():
                 raise FileNotFoundError
         except FileNotFoundError:
             self.logger.error(
-                f"Error: {file_path_config} does not exist or is empty, stopping"
+                f"Error: {FILE_PATH_CONFIG} does not exist or is empty, stopping"
             )
             return
         except configparser.DuplicateOptionError as e:
@@ -53,15 +57,15 @@ class App:
         for tld_file in tld_files:
             self.tldlist = self.parse_tld_file(tld_file)
             break
-        # Always block cn, ru, and xyz
-        self.tldlist.update({"xyz", "cn", "ru"})
+        # Always block specified TLDs
+        self.tldlist.update(ALWAYS_BLOCKED_TLDS)
 
         # Parse other domain lists
         for domain_list in other_files:
             all_domains.update(self.convert_to_domain_list(domain_list))
 
         unique_domains = list(all_domains)
-        total_new_lists = ceil(len(unique_domains) / 1000)
+        total_new_lists = ceil(len(unique_domains) / LIST_CHUNK_SIZE)
 
         self.logger.debug(
             f"Total not unique domains:{CustomFormatter.YELLOW} {len(all_domains)}"
@@ -74,7 +78,7 @@ class App:
         )
 
         # Check list size and limits
-        cf_lists, total_cf_lists = cloudflare_config.get_block_lists(name_prefix)
+        cf_lists, total_cf_lists = cloudflare_config.get_block_lists(NAME_PREFIX)
         diff_cf_lists = len(total_cf_lists) - len(cf_lists)
 
         self.logger.debug(
@@ -89,21 +93,21 @@ class App:
             self.logger.warning("Lists are the same size, stopping")
             return
 
-        # Check total lists do not exceed 300
-        elif (total_new_lists + diff_cf_lists) > 300:
+        # Check total lists do not exceed limit
+        elif (total_new_lists + diff_cf_lists) > MAX_LISTS_ALLOWED:
             self.logger.warning(
-                "Max of 300 lists allowed. Select smaller blocklists, stopping"
+                f"Max of {MAX_LISTS_ALLOWED} lists allowed. Select smaller blocklists, stopping"
             )
             return
 
         # Create/Delete/Manage Cloudflare policies
         if self.tldlist:
-            cloudflare_config.create_firewall_policy(name_prefix_tld, self.tldlist)
+            cloudflare_config.create_firewall_policy(NAME_PREFIX_TLD, self.tldlist)
         else:
-            cloudflare_config.delete_firewall_policy(name_prefix_tld)
+            cloudflare_config.delete_firewall_policy(NAME_PREFIX_TLD)
 
-        cloudflare_config.delete_lists_policy(name_prefix, cf_lists)
-        cloudflare_config.create_lists_policy(name_prefix, unique_domains)
+        cloudflare_config.delete_lists_policy(NAME_PREFIX, cf_lists)
+        cloudflare_config.create_lists_policy(NAME_PREFIX, unique_domains)
 
         self.logger.info(f"{CustomFormatter.GREEN}Done")
 
@@ -125,7 +129,7 @@ class App:
             return
 
         # Save the downloaded content to the temporary directory
-        file_path = Path("tmp") / name
+        file_path = TMP_DIR_PATH / name
         with file_path.open("wb") as file:
             file.write(response.content)
 
@@ -134,7 +138,7 @@ class App:
     def parse_tld_file(self, filename) -> Set[str]:
         """Parse Adblock-formatted TLDs from the downloaded file in tmp/."""
         
-        file_path = Path("tmp") / filename
+        file_path = TMP_DIR_PATH / filename
         tlds = set()
         if not file_path.exists():
             self.logger.warning(f"Missing {file_path}, skipping")
@@ -160,7 +164,7 @@ class App:
     def convert_to_domain_list(self, file_name: str) -> List[str]:
         """Converts a downloaded list or hosts file to a list of domains."""
 
-        file_path = Path("tmp") / file_name
+        file_path = TMP_DIR_PATH / file_name
 
         with file_path.open("r") as file:
             data = file.readlines()
