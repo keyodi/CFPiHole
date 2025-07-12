@@ -13,7 +13,7 @@ FILE_PATH_CONFIG = "config.ini"
 TMP_DIR_PATH = Path("./tmp")
 MAX_LISTS_ALLOWED = 300
 LIST_CHUNK_SIZE = 1000
-ALWAYS_BLOCKED_TLDS = {"xyz", "cn", "ru", "de", "me", "kr", "tv"}
+ALWAYS_BLOCKED_TLDS = {"xyz", "cn", "ru", "de", "me", "kr", "tv", "sbs", "nl"}
 
 class App:
     def __init__(self):
