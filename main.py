@@ -13,7 +13,6 @@ FILE_PATH_CONFIG = "config.ini"
 TMP_DIR_PATH = Path("./tmp")
 MAX_LISTS_ALLOWED = 300
 LIST_CHUNK_SIZE = 1000
-ALWAYS_BLOCKED_TLDS = {"xyz", "cn", "ru"}
 
 class App:
     def __init__(self):
@@ -55,9 +54,6 @@ class App:
         # Only one TLD list expected
         if tld_files:
             self.tldlist = self.parse_tld_file(tld_files[0])
-            
-        # Always block specified TLDs
-        self.tldlist.update(ALWAYS_BLOCKED_TLDS)
 
         # Parse other domain lists
         for domain_list in block_files:
