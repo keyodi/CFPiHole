@@ -41,3 +41,19 @@ jobs:
         CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
         CF_IDENTIFIER: ${{ secrets.CF_IDENTIFIER }}
       run: python3 main.py
+
+  retry:
+    needs: build
+    if: needs.build.result == 'failure'
+    runs-on: ubuntu-latest
+    steps:
+    - name: Wait 1 hour
+      run: sleep 3600
+    - name: Re-run main step
+      env:
+        CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+        CF_IDENTIFIER: ${{ secrets.CF_IDENTIFIER }}
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then pip install --no-cache-dir -r requirements.txt; fi
+        python3 main.py
