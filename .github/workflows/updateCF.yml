@@ -44,16 +44,27 @@ jobs:
 
   retry:
     needs: build
-    if: needs.build.result == 'failure'
+    if: failure()
     runs-on: ubuntu-latest
     steps:
-    - name: Wait 1 hour
-      run: sleep 3600
-    - name: Re-run main step
-      env:
-        CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-        CF_IDENTIFIER: ${{ secrets.CF_IDENTIFIER }}
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.12"
+        cache: 'pip'
+
+    - name: Wait 15 minutes before retry
+      run: sleep 900
+      
+    - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         if [ -f requirements.txt ]; then pip install --no-cache-dir -r requirements.txt; fi
-        python3 main.py
+
+    - name: Retry update
+      env:
+        CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+        CF_IDENTIFIER: ${{ secrets.CF_IDENTIFIER }}
+      run: python3 main.py
