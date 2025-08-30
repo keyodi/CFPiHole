@@ -33,7 +33,7 @@ def api_call(method, endpoint, json=None):
         return response.json()["result"] if response.json() else []
 
     except requests.exceptions.HTTPError as http_err:
-        logger.error(f"HTTP error occurred - Response: {response.text} - Trying increasing sleep timer")
+        logger.error("HTTP error occurred - Response: Error most likely caused by CF rate limit. Retrying in an hour.")
     except requests.exceptions.RequestException as req_err:
         logger.error(f"Request error occurred during API call to '{endpoint}': {req_err}")
     except ValueError as json_err:
