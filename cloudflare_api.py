@@ -20,7 +20,6 @@ logger = CustomFormatter.configure_logger("cloudflare")
 session = requests.Session()
 session.headers.update({"Authorization": f"Bearer {CF_API_TOKEN}"})
 
-
 def api_call(method, endpoint, json=None):
     """Makes an API call with error handling and logging."""
 
@@ -33,16 +32,17 @@ def api_call(method, endpoint, json=None):
         return response.json()["result"] if response.json() else []
 
     except requests.exceptions.HTTPError as http_err:
-        logger.error("HTTP error occurred - Response: Error most likely caused by CF rate limit. Retrying in an hour.")
+        logger.error("HTTP error occurred - Response: Error most likely caused by CF rate limit. Retrying in 15 minutes.")
+        raise
     except requests.exceptions.RequestException as req_err:
         logger.error(f"Request error occurred during API call to '{endpoint}': {req_err}")
+        raise
     except ValueError as json_err:
         logger.error(f"Error decoding JSON response from '{endpoint}': {json_err}")
+        raise
     except Exception as err:
         logger.error(f"An unexpected error occurred during API call to '{endpoint}': {err}")
-
-    return []
-
+        raise
 
 def get_lists(name_prefix: str):
     """Retrieves lists with a specific name prefix."""
@@ -50,7 +50,6 @@ def get_lists(name_prefix: str):
     data = api_call(session.get, "lists")
 
     return [l for l in data if l["name"].startswith(name_prefix)], data
-
 
 def create_list(name: str, domains: List[str]):
     """Creates a new list with the specified name and domains."""
@@ -69,13 +68,11 @@ def create_list(name: str, domains: List[str]):
 
     return data
 
-
 def delete_list(list_id: str, name: str):
     """Deletes a list by its ID."""
 
     api_call(session.delete, f"lists/{list_id}")
     logger.debug(f"Deleted list {name}")
-
 
 def get_firewall_policies(name_prefix: str):
     """Retrieves firewall policies with a specific name prefix."""
@@ -84,13 +81,11 @@ def get_firewall_policies(name_prefix: str):
 
     return [l for l in data if l["name"].startswith(name_prefix)]
 
-
 def delete_firewall_policy(name_prefix: str, policy_id: str):
     """Deletes a firewall policy by its ID."""
 
     api_call(session.delete, f"rules/{policy_id}")
     logger.info(f"Deleted policy {name_prefix}")
-
 
 def create_gateway_policy(
     name: str,
