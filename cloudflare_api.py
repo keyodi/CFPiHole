@@ -33,16 +33,16 @@ def api_call(method, endpoint, json=None):
 
     except requests.exceptions.HTTPError:
         logger.error("HTTP error occurred - Response: Error most likely caused by CF rate limit. Retrying in 15 minutes.")
-        raise
+        sys.exit(1)
     except requests.exceptions.RequestException as req_err:
         logger.error(f"Request error occurred during API call to '{endpoint}': {req_err}")
-        raise
+        sys.exit(1)
     except ValueError as json_err:
         logger.error(f"Error decoding JSON response from '{endpoint}': {json_err}")
-        raise
+        sys.exit(1)
     except Exception as err:
         logger.error(f"An unexpected error occurred during API call to '{endpoint}': {err}")
-        raise
+        sys.exit(1)
 
 def get_lists(name_prefix: str):
     """Retrieves lists with a specific name prefix."""
