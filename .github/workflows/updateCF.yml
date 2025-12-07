@@ -1,4 +1,4 @@
-# This workflow will install Python dependencies, run tests and lint with a single version of Python
+# This workflow will install Python dependencies and run the update with simple fixed-delay retries in the same job
 # For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-python
 
 name: Python application (Cloudflare)
@@ -36,35 +36,29 @@ jobs:
         python -m pip install --upgrade pip
         if [ -f requirements.txt ]; then pip install --no-cache-dir -r requirements.txt; fi
 
-    - name: Start update
+    - name: Run update (with retries)
       env:
         CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
         CF_IDENTIFIER: ${{ secrets.CF_IDENTIFIER }}
-      run: python3 main.py
-
-  retry:
-    needs: build
-    if: failure()
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Python 3.12
-      uses: actions/setup-python@v4
-      with:
-        python-version: "3.12"
-        cache: 'pip'
-
-    - name: Wait 15 minutes before retry
-      run: sleep 900
-      
-    - name: Install dependencies
       run: |
-        python -m pip install --upgrade pip
-        if [ -f requirements.txt ]; then pip install --no-cache-dir -r requirements.txt; fi
+        set -eo pipefail
 
-    - name: Retry update
-      env:
-        CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-        CF_IDENTIFIER: ${{ secrets.CF_IDENTIFIER }}
-      run: python3 main.py
+        # Configurable:
+        max_attempts=3         # total attempts (1 initial + retries)
+        delay_seconds=900      # fixed 15-minute wait between attempts
+
+        attempt=1
+        while true; do
+          echo "Attempt $attempt of $max_attempts: running update..."
+          if python3 main.py; then
+            echo "Update succeeded on attempt $attempt."
+            break
+          fi
+
+          if [ "$attempt" -ge "$max_attempts" ]; then
+            echo "Update failed after $attempt attempts."
+            exit 1
+          fi
+
+          echo "Attempt $attempt failed — sleeping ${delay_seconds}s before retry..."
+          sleep "${delay_seconds}or
