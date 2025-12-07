@@ -61,4 +61,7 @@ jobs:
           fi
 
           echo "Attempt $attempt failed — sleeping ${delay_seconds}s before retry..."
-          sleep "${delay_seconds}or
+          sleep "${delay_seconds}"
+
+          attempt=$(( attempt + 1 ))
+        done
