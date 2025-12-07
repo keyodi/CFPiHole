@@ -1,5 +1,4 @@
 from typing import List, Set
-from math import ceil
 from logger_config import CustomFormatter
 from pathlib import Path
 import requests
@@ -60,7 +59,7 @@ class App:
             all_domains.update(self.convert_to_domain_list(domain_list))
 
         unique_domains = list(all_domains)
-        total_new_lists = ceil(len(unique_domains) / LIST_CHUNK_SIZE)
+        total_new_lists = (len(unique_domains) + LIST_CHUNK_SIZE - 1)
 
         self.logger.debug(
             f"Total not unique domains:{CustomFormatter.YELLOW} {len(all_domains)}"
