@@ -59,7 +59,7 @@ class App:
             all_domains.update(self.convert_to_domain_list(domain_list))
 
         unique_domains = list(all_domains)
-        total_new_lists = (len(unique_domains) + LIST_CHUNK_SIZE - 1)
+        total_new_lists = (len(unique_domains) + LIST_CHUNK_SIZE - 1) // LIST_CHUNK_SIZE
 
         self.logger.debug(
             f"Total not unique domains:{CustomFormatter.YELLOW} {len(all_domains)}"
