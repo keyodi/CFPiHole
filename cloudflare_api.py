@@ -3,6 +3,7 @@ from logger_config import CustomFormatter
 from dotenv import load_dotenv
 import requests
 import os
+import sys
 
 
 # Load environment variables
@@ -32,17 +33,17 @@ def api_call(method, endpoint, json=None):
         return response.json()["result"] if response.json() else []
 
     except requests.exceptions.HTTPError:
-        logger.error("HTTP error occurred - Response: Error most likely caused by CF rate limit. Retrying in 15 minutes.")
-        sys.exit(1)
+        logger.error("HTTP error occurred - Response: Error most likely caused by CF rate limit. Retrying in 15 minutes...")
+        raise SystemExit(1)
     except requests.exceptions.RequestException as req_err:
         logger.error(f"Request error occurred during API call to '{endpoint}': {req_err}")
-        sys.exit(1)
+        raise SystemExit(1)
     except ValueError as json_err:
         logger.error(f"Error decoding JSON response from '{endpoint}': {json_err}")
-        sys.exit(1)
+        raise SystemExit(1)
     except Exception as err:
         logger.error(f"An unexpected error occurred during API call to '{endpoint}': {err}")
-        sys.exit(1)
+        raise SystemExit(1)
 
 def get_lists(name_prefix: str):
     """Retrieves lists with a specific name prefix."""
