@@ -3,7 +3,6 @@ from logger_config import CustomFormatter
 from dotenv import load_dotenv
 import requests
 import os
-import sys
 
 
 # Load environment variables
