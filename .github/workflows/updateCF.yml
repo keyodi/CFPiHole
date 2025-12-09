@@ -45,8 +45,9 @@ jobs:
 
         # Configurable:
         max_attempts=3         # total attempts (1 initial + retries)
-        delay_seconds=900      # fixed 15-minute wait between attempts
-
+        delay_seconds=300      # fixed 5-minute wait between attempts
+        delay_minutes=$(( delay_seconds / 60 )) # convert to minutes
+        
         attempt=1
         while true; do
           echo "Attempt $attempt of $max_attempts: running update..."
@@ -60,7 +61,7 @@ jobs:
             exit 1
           fi
 
-          echo "Attempt $attempt failed — sleeping ${delay_seconds}s before retry..."
+          echo "Attempt $attempt failed — sleeping ${delay_minutes}min before retry..."
           sleep "${delay_seconds}"
 
           attempt=$(( attempt + 1 ))
