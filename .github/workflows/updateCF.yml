@@ -17,24 +17,18 @@ jobs:
     steps:
     - uses: actions/checkout@v5
 
-    - name: Set up Python 3.12
+    - name: Set up Python 3.12 (with caching)
       uses: actions/setup-python@v5
       with:
         python-version: "3.12"
         cache: 'pip'
 
-    - name: Cache pip dependencies
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-pip-
-
     - name: Install dependencies
       run: |
+        # Ensure pip is up to date
         python -m pip install --upgrade pip
-        if [ -f requirements.txt ]; then pip install --no-cache-dir -r requirements.txt; fi
+        # Install dependencies; pip will use the cache set up by actions/setup-python
+        pip install -r requirements.txt
 
     - name: Run update (with retries)
       env:
@@ -44,14 +38,15 @@ jobs:
         set -eo pipefail
 
         # Configurable:
-        max_attempts=3         # total attempts (1 initial + retries)
-        delay_seconds=300      # fixed 5-minute wait between attempts
+        max_attempts=3       # total attempts (1 initial + retries)
+        delay_seconds=300    # fixed 5-minute wait between attempts
         delay_minutes=$(( delay_seconds / 60 )) # convert to minutes
         
         attempt=1
         while true; do
           echo "Attempt $attempt of $max_attempts: running update..."
-          if python3 main.py; then
+          
+          if python main.py; then 
             echo "Update succeeded on attempt $attempt."
             break
           fi
