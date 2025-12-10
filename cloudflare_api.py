@@ -32,7 +32,7 @@ def api_call(method, endpoint, json=None):
         return response.json()["result"] if response.json() else []
 
     except requests.exceptions.HTTPError:
-        logger.error("HTTP error occurred - Response: Error most likely caused by CF rate limit. Retrying in 15 minutes...")
+        logger.error("HTTP error occurred - Error most likely caused by CF rate limit.")
         raise SystemExit(1)
     except requests.exceptions.RequestException as req_err:
         logger.error(f"Request error occurred during API call to '{endpoint}': {req_err}")
