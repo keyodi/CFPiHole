@@ -10,6 +10,8 @@ load_dotenv()
 
 CF_API_TOKEN = os.getenv("CF_API_TOKEN")
 CF_IDENTIFIER = os.getenv("CF_IDENTIFIER")
+BASE_URL = f"https://api.cloudflare.com/client/v4/accounts/{CF_IDENTIFIER}/gateway"
+
 # Credentials check (moved outside session creation)
 if not CF_API_TOKEN or not CF_IDENTIFIER:
     raise Exception("Missing Cloudflare credentials")
@@ -24,7 +26,7 @@ def api_call(method, endpoint, json=None):
     """Makes an API call with error handling and logging."""
 
     try:
-        url = f"https://api.cloudflare.com/client/v4/accounts/{CF_IDENTIFIER}/gateway/{endpoint}"
+        url = f"{BASE_URL}/{endpoint}"
         response = method(url, json=json)
         response.raise_for_status()
         logger.debug(f"[{endpoint}] {response.status_code}")
@@ -47,7 +49,7 @@ def api_call(method, endpoint, json=None):
 def get_lists(name_prefix: str):
     """Retrieves lists with a specific name prefix."""
 
-    data = api_call(session.get, "lists")
+    data = api_call(session.get, "lists") or []
 
     return [l for l in data if l["name"].startswith(name_prefix)], data
 
@@ -77,7 +79,7 @@ def delete_list(list_id: str, name: str):
 def get_firewall_policies(name_prefix: str):
     """Retrieves firewall policies with a specific name prefix."""
 
-    data = api_call(session.get, "rules")
+    data = api_call(session.get, "rules") or []
 
     return [l for l in data if l["name"].startswith(name_prefix)]
 
@@ -94,11 +96,12 @@ def create_gateway_policy(
 ):
     """Creates a gateway policy with blocking logic based on list IDs."""
 
-    traffic = (
-        "or".join([f"any(dns.domains[*] in ${l})" for l in list_ids])
-        if list_ids
-        else f'(any(dns.domains[*] matches "{regex_tld}"))'
-    )
+    if list_ids:
+        # Simplified join with consistent spacing
+        traffic = " or ".join([f"any(dns.domains[*] in ${l})" for l in list_ids])
+    else:
+        traffic = f'any(dns.domains[*] matches "{regex_tld}")'
+
     endpoint = "rules"
     block_page = bool(regex_tld)
     data = api_call(
