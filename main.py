@@ -134,21 +134,24 @@ class App:
         
         file_path = TMP_DIR_PATH / filename
         tlds = set()
+
         if not file_path.exists():
             self.logger.warning(f"Missing {file_path}, skipping")
             return tlds
+
         with file_path.open("r") as file:
             for line in file:
                 line = line.strip()
+
                 if not line or line.startswith(("!", "#", ";", "//", "[")):
                     continue
+
                 line = line.split("#")[0].split("//")[0].strip()
-                if line.startswith("||"):
-                    line = line[2:]
-                if line.endswith("^"):
-                    line = line[:-1]
+                line = line.removeprefix("||").removesuffix("^")
+
                 if line:
                     tlds.add(line)
+
         self.logger.info(
             f"Number of TLDs from remote list: {CustomFormatter.GREEN}{len(tlds)}"
         )
