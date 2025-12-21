@@ -13,7 +13,7 @@ CF_IDENTIFIER = os.getenv("CF_IDENTIFIER")
 BASE_URL = f"https://api.cloudflare.com/client/v4/accounts/{CF_IDENTIFIER}/gateway"
 
 # Credentials check (moved outside session creation)
-if not CF_API_TOKEN or not CF_IDENTIFIER:
+if not all([CF_API_TOKEN, CF_IDENTIFIER]):
     raise Exception("Missing Cloudflare credentials")
 
 # Configure logging
@@ -25,25 +25,16 @@ session.headers.update({"Authorization": f"Bearer {CF_API_TOKEN}"})
 def api_call(method, endpoint, json=None):
     """Makes an API call with error handling and logging."""
 
+    url = f"{BASE_URL}/{endpoint}"
     try:
-        url = f"{BASE_URL}/{endpoint}"
         response = method(url, json=json)
         response.raise_for_status()
         logger.debug(f"[{endpoint}] {response.status_code}")
 
-        return response.json()["result"] if response.json() else []
+        return response.json().get("result", [])
 
-    except requests.exceptions.HTTPError:
-        logger.error("HTTP error occurred - Error most likely caused by CF rate limit.")
-        raise SystemExit(1)
-    except requests.exceptions.RequestException as req_err:
-        logger.error(f"Request error occurred during API call to '{endpoint}': {req_err}")
-        raise SystemExit(1)
-    except ValueError as json_err:
-        logger.error(f"Error decoding JSON response from '{endpoint}': {json_err}")
-        raise SystemExit(1)
     except Exception as err:
-        logger.error(f"An unexpected error occurred during API call to '{endpoint}': {err}")
+        logger.error("HTTP error occurred - Error most likely caused by CF rate limit. Retrying")
         raise SystemExit(1)
 
 def get_lists(name_prefix: str):
@@ -97,7 +88,6 @@ def create_gateway_policy(
     """Creates a gateway policy with blocking logic based on list IDs."""
 
     if list_ids:
-        # Simplified join with consistent spacing
         traffic = " or ".join([f"any(dns.domains[*] in ${l})" for l in list_ids])
     else:
         traffic = f'any(dns.domains[*] matches "{regex_tld}")'
