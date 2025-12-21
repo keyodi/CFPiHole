@@ -7,10 +7,11 @@ import cloudflare_api
 logger = CustomFormatter.configure_logger("cloudflare_setup")
 
 def get_block_lists(name_prefix: str):
+    """Gets block lists with defined name prefix"""
     return cloudflare_api.get_lists(name_prefix)
 
 def get_gateway_policies(name_prefix: str):
-    """Gets blocking policies with defined name prefix in cloudflare_api."""
+    """Gets block policies with defined name prefix"""
 
     cf_policies = cloudflare_api.get_firewall_policies(name_prefix)
     return cf_policies, len(cf_policies)
@@ -18,15 +19,12 @@ def get_gateway_policies(name_prefix: str):
 def create_firewall_policy(
     name_prefix: str, list_ids: Optional[List[str]] = None, regex_tld: Optional[str] = None
 ):
-    """
-    Creates or updates a blocking policy in cloudflare_api.
-    For TLDs, generates regex and resets list_ids.
-    """
+    """Creates a block policy in the Firewall policy"""
     
     cf_policies, num_policies = get_gateway_policies(name_prefix)
 
     if "TLDs" in name_prefix:
-        unique_tlds = sorted({tld.replace(".", "") for tld in list_ids or []})
+        unique_tlds = sorted({tld for tld in list_ids or []})
         regex_tld = rf"[.](|{'|'.join(unique_tlds)})$"
         list_ids = None
 
