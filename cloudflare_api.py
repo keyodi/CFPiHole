@@ -34,7 +34,9 @@ def api_call(method, endpoint, json=None):
         return response.json().get("result", [])
 
     except Exception as err:
-        logger.error("HTTP error occurred - Error most likely caused by CF rate limit. Retrying")
+        logger.error(
+            "HTTP error occurred - Error most likely caused by CF rate limit. Retrying"
+        )
         raise SystemExit(1)
 
 def get_lists(name_prefix: str):
@@ -109,3 +111,4 @@ def create_gateway_policy(
     )
     logger.info(f"Created firewall policy: {name}")
     return data
+

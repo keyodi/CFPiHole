@@ -8,6 +8,7 @@ logger = CustomFormatter.configure_logger("cloudflare_setup")
 
 def get_block_lists(name_prefix: str):
     """Gets block lists with defined name prefix"""
+    
     return cloudflare_api.get_lists(name_prefix)
 
 def get_gateway_policies(name_prefix: str):
@@ -17,10 +18,12 @@ def get_gateway_policies(name_prefix: str):
     return cf_policies, len(cf_policies)
 
 def create_firewall_policy(
-    name_prefix: str, list_ids: Optional[List[str]] = None, regex_tld: Optional[str] = None
+    name_prefix: str,
+    list_ids: Optional[List[str]] = None,
+    regex_tld: Optional[str] = None,
 ):
     """Creates a block policy in the Firewall policy"""
-    
+
     cf_policies, num_policies = get_gateway_policies(name_prefix)
 
     if "TLDs" in name_prefix:
@@ -79,4 +82,5 @@ def chunk_list(_list: List[str], n: int):
     """Yield successive n-sized chunks from _list."""
 
     for i in range(0, len(_list), n):
-        yield _list[i:i + n]
+        yield _list[i : i + n]
+

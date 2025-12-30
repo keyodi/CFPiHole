@@ -5,6 +5,7 @@ import requests
 import cloudflare_config
 import configparser
 
+
 # Constants
 NAME_PREFIX = "[CFPihole] Block Ads"
 NAME_PREFIX_TLD = "[CFPihole] Block TLDs"
@@ -131,7 +132,7 @@ class App:
 
     def parse_tld_file(self, filename) -> Set[str]:
         """Parse Adblock-formatted TLDs from the downloaded file in tmp/."""
-        
+
         file_path = TMP_DIR_PATH / filename
         tlds = set()
 
@@ -202,7 +203,7 @@ class App:
 
         return domains
 
-
 if __name__ == "__main__":
     app = App()
     app.run()
+

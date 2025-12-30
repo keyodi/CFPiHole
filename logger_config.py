@@ -21,7 +21,7 @@ class CustomFormatter(logging.Formatter):
     @staticmethod
     def configure_logger(name: str, level=logging.INFO):
         logger = logging.getLogger(name)
-        
+
         # If logger already has handlers
         if logger.hasHandlers():
             return logger
@@ -35,3 +35,4 @@ class CustomFormatter(logging.Formatter):
         logger.addHandler(handler)
 
         return logger
+
