@@ -33,7 +33,7 @@ def api_call(method, endpoint, json=None):
 
         return response.json().get("result", [])
 
-    except Exception as err:
+    except Exception:
         logger.error(
             "HTTP error occurred - Error most likely caused by CF rate limit. Retrying"
         )
