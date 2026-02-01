@@ -200,7 +200,7 @@ class App:
 
             domains.append(domain)
 
-        self.logger.info(f"Number of domains: {CustomFormatter.YELLOW}{len(domains)}")
+        self.logger.debug(f"{file_name} - Number of domains: {CustomFormatter.YELLOW}{len(domains)}")
 
         return domains
 
