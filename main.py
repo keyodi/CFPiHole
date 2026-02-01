@@ -27,28 +27,23 @@ class App:
         TMP_DIR_PATH.mkdir(exist_ok=True)
 
         config = configparser.ConfigParser()
-        try:
-            config.read(FILE_PATH_CONFIG)
-            if not config.sections():
-                raise FileNotFoundError
-        except FileNotFoundError:
+        config.read(FILE_PATH_CONFIG)
+        
+        # Check if the file was loaded and has the required 'Lists' section
+        if not config.has_section("Lists"):
             self.logger.error(
-                f"Error: {FILE_PATH_CONFIG} does not exist or is empty, stopping"
-            )
-            return
-        except configparser.DuplicateOptionError as e:
-            self.logger.error(
-                f"Error: Duplicate option '{e.option}' found in section '{e.section}' (Line {e.lineno})"
+                f"Error: {FILE_PATH_CONFIG} is missing the [Lists] section, file doesn't exist or duplicate values."
             )
             return
 
         all_domains = set()
-        tld_files = [name for name in config["Lists"] if "tld" in name.lower()]
-        block_files = [name for name in config["Lists"] if "tld" not in name.lower()]
+        list_names = config.options("Lists")
+        tld_files = [name for name in list_names if "tld" in name.lower()]
+        block_files = [name for name in list_names if "tld" not in name.lower()]
 
         # Download all files first
         with requests.Session() as session:
-            for domain_list in config["Lists"]:
+            for domain_list in list_names:
                 self.logger.debug(f"Setting list {domain_list}")
                 self.download_file(session, config["Lists"][domain_list], domain_list)
 
