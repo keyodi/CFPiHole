@@ -1,4 +1,3 @@
-from typing import List, Optional
 from logger_config import CustomFormatter
 import cloudflare_api
 # Optional: import time
@@ -19,8 +18,8 @@ def get_gateway_policies(name_prefix: str):
 
 def create_firewall_policy(
     name_prefix: str,
-    list_ids: Optional[List[str]] = None,
-    regex_tld: Optional[str] = None,
+    list_ids: list[str] | None = None,
+    regex_tld: str | None = None,
 ):
     """Creates a block policy in the Firewall policy"""
 
@@ -56,7 +55,7 @@ def delete_firewall_policy(name_prefix: str):
 
     cloudflare_api.delete_firewall_policy(name_prefix, cf_policies[0]["id"])
 
-def delete_lists_policy(name_prefix: str, cf_lists: List[dict]):
+def delete_lists_policy(name_prefix: str, cf_lists: list[dict]):
     """Deletes the blocking policy and then the lists in cloudflare_api."""
 
     delete_firewall_policy(name_prefix)
@@ -65,7 +64,7 @@ def delete_lists_policy(name_prefix: str, cf_lists: List[dict]):
         cloudflare_api.delete_list(l["id"], l["name"])
         # Optional: time.sleep(1.5)  # Prevent rate limit if needed
 
-def create_lists_policy(name_prefix: str, unique_domains: List[str]):
+def create_lists_policy(name_prefix: str, unique_domains: list[str]):
     """Creates new lists with chunking and handles rate limits."""
 
     logger.info(f"{CustomFormatter.YELLOW} Creating lists, please wait")
@@ -78,7 +77,7 @@ def create_lists_policy(name_prefix: str, unique_domains: List[str]):
 
     create_firewall_policy(name_prefix, [l["id"] for l in cf_lists])
 
-def chunk_list(_list: List[str], n: int):
+def chunk_list(_list: list[str], n: int):
     """Yield successive n-sized chunks from _list."""
 
     for i in range(0, len(_list), n):
