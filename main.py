@@ -10,6 +10,7 @@ NAME_PREFIX = "[CFPihole] Block Ads"
 NAME_PREFIX_TLD = "[CFPihole] Block TLDs"
 FILE_PATH_CONFIG = "config.ini"
 TMP_DIR_PATH = Path("./tmp")
+TIMEOUT = 15
 MAX_LISTS_ALLOWED = 300
 LIST_CHUNK_SIZE = 1000
 
@@ -46,9 +47,10 @@ class App:
         block_files = [name for name in config["Lists"] if "tld" not in name.lower()]
 
         # Download all files first
-        for domain_list in config["Lists"]:
-            self.logger.debug(f"Setting list {domain_list}")
-            self.download_file(config["Lists"][domain_list], domain_list)
+        with requests.Session() as session:
+            for domain_list in config["Lists"]:
+                self.logger.debug(f"Setting list {domain_list}")
+                self.download_file(session, config["Lists"][domain_list], domain_list)
 
         # Only one TLD list expected
         if tld_files:
@@ -105,14 +107,14 @@ class App:
 
         self.logger.info(f"{CustomFormatter.GREEN}Done")
 
-    def download_file(self, url, name, timeout=15):
+    def download_file(self, session, url, name):
         """Downloads a file from the given URL and saves it to the temporary directory."""
 
         self.logger.info(f"Downloading file from {url}")
 
         try:
             # Download the file and handle potential errors
-            response = requests.get(url, allow_redirects=True, timeout=timeout)
+            response = session.get(url, allow_redirects=True, timeout=TIMEOUT)
             # Raise exception for non-200 status codes
             response.raise_for_status()
         except requests.Timeout:
@@ -205,4 +207,3 @@ class App:
 if __name__ == "__main__":
     app = App()
     app.run()
-
