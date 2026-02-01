@@ -36,7 +36,7 @@ class App:
             )
             return
 
-        all_domains = set()
+        all_domains: set[str] = set()
         list_names = config.options("Lists")
         tld_files = [name for name in list_names if "tld" in name.lower()]
         block_files = [name for name in list_names if "tld" not in name.lower()]
@@ -55,14 +55,11 @@ class App:
         for domain_list in block_files:
             all_domains.update(self.convert_to_domain_list(domain_list))
 
-        unique_domains = list(all_domains)
-        total_new_lists = (len(unique_domains) + LIST_CHUNK_SIZE - 1) // LIST_CHUNK_SIZE
+        unique_domains = len(all_domains)
+        total_new_lists = -(-unique_domains // LIST_CHUNK_SIZE)
 
-        self.logger.debug(
-            f"Total not unique domains:{CustomFormatter.YELLOW} {len(all_domains)}"
-        )
         self.logger.info(
-            f"Total count of unique domains in list: {CustomFormatter.GREEN}{len(unique_domains)}"
+            f"Total count of unique domains in list: {CustomFormatter.GREEN}{unique_domains}"
         )
         self.logger.info(
             f"Total lists to create: {CustomFormatter.GREEN}{total_new_lists}"
@@ -80,7 +77,7 @@ class App:
         )
 
         # Compare the lists size
-        if len(unique_domains) == sum(l["count"] for l in cf_lists):
+        if unique_domains == sum(l["count"] for l in cf_lists):
             self.logger.warning("Lists are the same size, stopping")
             return
 
@@ -98,7 +95,7 @@ class App:
             cloudflare_config.delete_firewall_policy(NAME_PREFIX_TLD)
 
         cloudflare_config.delete_lists_policy(NAME_PREFIX, cf_lists)
-        cloudflare_config.create_lists_policy(NAME_PREFIX, unique_domains)
+        cloudflare_config.create_lists_policy(NAME_PREFIX, sorted(list(all_domains)))
 
         self.logger.info(f"{CustomFormatter.GREEN}Done")
 
