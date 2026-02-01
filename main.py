@@ -18,7 +18,7 @@ class App:
     def __init__(self):
         # Configure logging
         self.logger = CustomFormatter.configure_logger("main")
-        self.tldlist: set[str] = set()
+        self.tld_list: set[str] = set()
 
     def run(self):
         """Fetches domains, creates lists, and manages firewall policies."""
@@ -54,7 +54,7 @@ class App:
 
         # Only one TLD list expected
         if tld_files:
-            self.tldlist = self.parse_tld_file(tld_files[0])
+            self.tld_list = self.parse_tld_file(tld_files[0])
 
         # Parse other domain lists
         for domain_list in block_files:
@@ -97,8 +97,8 @@ class App:
             return
 
         # Create/Delete/Manage Cloudflare policies
-        if self.tldlist:
-            cloudflare_config.create_firewall_policy(NAME_PREFIX_TLD, self.tldlist)
+        if self.tld_list:
+            cloudflare_config.create_firewall_policy(NAME_PREFIX_TLD, self.tld_list)
         else:
             cloudflare_config.delete_firewall_policy(NAME_PREFIX_TLD)
 
@@ -195,7 +195,7 @@ class App:
                 domain = line
 
             # Skip if TLD is not in the list
-            if self.tldlist and domain.endswith(tuple(self.tldlist)):
+            if self.tld_list and domain.endswith(tuple(self.tld_list)):
                 continue
 
             domains.append(domain)
@@ -205,5 +205,4 @@ class App:
         return domains
 
 if __name__ == "__main__":
-    app = App()
-    app.run()
+    App().run()
