@@ -1,4 +1,3 @@
-from typing import List, Set
 from logger_config import CustomFormatter
 from pathlib import Path
 import requests
@@ -18,7 +17,7 @@ class App:
     def __init__(self):
         # Configure logging
         self.logger = CustomFormatter.configure_logger("main")
-        self.tldlist: Set[str] = set()
+        self.tldlist: set[str] = set()
 
     def run(self):
         """Fetches domains, creates lists, and manages firewall policies."""
@@ -130,7 +129,7 @@ class App:
 
         self.logger.info(f"File size: {file_path.stat().st_size / (1024):.0f} KB")
 
-    def parse_tld_file(self, filename) -> Set[str]:
+    def parse_tld_file(self, filename) -> set[str]:
         """Parse Adblock-formatted TLDs from the downloaded file in tmp/."""
 
         file_path = TMP_DIR_PATH / filename
@@ -158,7 +157,7 @@ class App:
         )
         return tlds
 
-    def convert_to_domain_list(self, file_name: str) -> List[str]:
+    def convert_to_domain_list(self, file_name: str) -> list[str]:
         """Converts a downloaded list or hosts file to a list of domains."""
 
         file_path = TMP_DIR_PATH / file_name
