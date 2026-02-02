@@ -1,4 +1,3 @@
-from typing import List
 from logger_config import CustomFormatter
 from dotenv import load_dotenv
 import requests
@@ -46,7 +45,7 @@ def get_lists(name_prefix: str):
 
     return [l for l in data if l["name"].startswith(name_prefix)], data
 
-def create_list(name: str, domains: List[str]):
+def create_list(name: str, domains: list[str]):
     """Creates a new list with the specified name and domains."""
 
     data = api_call(
@@ -84,7 +83,7 @@ def delete_firewall_policy(name_prefix: str, policy_id: str):
 
 def create_gateway_policy(
     name: str,
-    list_ids: List[str] = None,
+    list_ids: list[str] = None,
     regex_tld: str = None,
 ):
     """Creates a gateway policy with blocking logic based on list IDs."""
