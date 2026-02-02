@@ -82,7 +82,7 @@ class App:
             return
 
         # Check total lists do not exceed limit
-        elif (total_new_lists + diff_cf_lists) > MAX_LISTS_ALLOWED:
+        if (total_new_lists + diff_cf_lists) > MAX_LISTS_ALLOWED:
             self.logger.warning(
                 f"Max of {MAX_LISTS_ALLOWED} lists allowed. Select smaller blocklists, stopping"
             )
@@ -105,29 +105,19 @@ class App:
         self.logger.info(f"Downloading file from {url}")
 
         try:
-            # Download the file and handle potential errors
             response = session.get(url, allow_redirects=True, timeout=TIMEOUT)
-            # Raise exception for non-200 status codes
             response.raise_for_status()
-        except requests.Timeout:
-            self.logger.error(f"Timeout occurred while downloading {url}")
-            return
+            file_path = TMP_DIR_PATH / name
+            file_path.write_bytes(response.content)
+            self.logger.info(f"File size: {file_path.stat().st_size / 1024:.0f} KB")
         except requests.RequestException as e:
             self.logger.error(f"Error downloading {url}: {e}")
-            return
-
-        # Save the downloaded content to the temporary directory
-        file_path = TMP_DIR_PATH / name
-        with file_path.open("wb") as file:
-            file.write(response.content)
-
-        self.logger.info(f"File size: {file_path.stat().st_size / (1024):.0f} KB")
 
     def parse_tld_file(self, filename) -> set[str]:
         """Parse Adblock-formatted TLDs from the downloaded file in tmp/."""
 
         file_path = TMP_DIR_PATH / filename
-        tlds = set()
+        tlds: set[str] = set()
 
         if not file_path.exists():
             self.logger.warning(f"Missing {file_path}, skipping")
