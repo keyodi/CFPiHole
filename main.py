@@ -46,9 +46,11 @@ class App:
                 self.logger.debug(f"Setting list {domain_list}")
                 self.download_file(session, config["Lists"][domain_list], domain_list)
 
-        # Only one TLD list expected
+       # Only one TLD list expected
         if tld_files:
-            self.tld_list = self.parse_tld_file(tld_files[0])
+            self.tld_tuple = tuple(self.parse_tld_file(tld_files[0])) 
+        else:
+            self.tld_tuple = ()
 
         # Parse other domain lists
         all_domains: set[str] = set()
@@ -162,7 +164,7 @@ class App:
             if line.strip()
             and not line.startswith(("#", ";"))
             and not (is_hosts_file and "localhost" in line.lower())
-            and not (self.tld_list and line.strip().lower().endswith(tuple(self.tld_list)))
+            and not (self.tld_tuple and line.strip().lower().endswith(self.tld_tuple))
         }
 
         self.logger.debug(
