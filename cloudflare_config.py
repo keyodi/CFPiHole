@@ -26,7 +26,7 @@ def create_firewall_policy(
     cf_policies, num_policies = get_gateway_policies(name_prefix)
 
     if "TLDs" in name_prefix:
-        unique_tlds = sorted({tld for tld in list_ids or []})
+        unique_tlds = {tld for tld in list_ids or []}
         regex_tld = rf"[.](|{'|'.join(unique_tlds)})$"
         list_ids = None
 
