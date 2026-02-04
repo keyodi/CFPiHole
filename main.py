@@ -36,7 +36,6 @@ class App:
             )
             return
 
-        all_domains: set[str] = set()
         list_names = config.options("Lists")
         tld_files = [name for name in list_names if "tld" in name.lower()]
         block_files = [name for name in list_names if "tld" not in name.lower()]
@@ -52,8 +51,9 @@ class App:
             self.tld_list = self.parse_tld_file(tld_files[0])
 
         # Parse other domain lists
+        all_domains: set[str] = set()
         for domain_list in block_files:
-            all_domains.update(self.convert_to_domain_list(domain_list))
+            all_domains |= self.convert_to_domain_list(domain_list)
 
         unique_domains = len(all_domains)
         total_new_lists = -(-unique_domains // LIST_CHUNK_SIZE)
@@ -95,7 +95,7 @@ class App:
             cloudflare_config.delete_firewall_policy(NAME_PREFIX_TLD)
 
         cloudflare_config.delete_lists_policy(NAME_PREFIX, cf_lists)
-        cloudflare_config.create_lists_policy(NAME_PREFIX, sorted(list(all_domains)))
+        cloudflare_config.create_lists_policy(NAME_PREFIX, sorted(all_domains))
 
         self.logger.info(f"{CustomFormatter.GREEN}Done")
 
@@ -141,8 +141,8 @@ class App:
         )
         return tlds
 
-    def convert_to_domain_list(self, file_name: str) -> list[str]:
-        """Converts a downloaded list or hosts file to a list of domains."""
+    def convert_to_domain_list(self, file_name: str) -> set[str]:
+        """Converts a downloaded list or hosts file to a set of domains."""
 
         file_path = TMP_DIR_PATH / file_name
 
@@ -151,39 +151,23 @@ class App:
 
         # Check first 50 lines for hosts file indicator
         is_hosts_file = any(
-            any(ip in line for ip in ["localhost ", "127.0.0.1 ", "::1 ", "0.0.0.0 "])
-            for line in data[:50]
+            ip in line for line in data[:50] for ip in ["127.0.0.1 ", "0.0.0.0 "]
         )
 
-        domains = []
+        domains = {
+            (line.split()[1] if is_hosts_file and len(line.split()) > 1 else line.strip())
+            .lower()
+            .rstrip(".")
+            for line in data
+            if line.strip()
+            and not line.startswith(("#", ";"))
+            and not (is_hosts_file and "localhost" in line.lower())
+            and not (self.tld_list and line.strip().lower().endswith(tuple(self.tld_list)))
+        }
 
-        for line in data:
-            # Skip comments and empty lines
-            line = line.strip()
-            if line.startswith(("#", ";")) or not line:
-                continue
-
-            if is_hosts_file:
-                # Remove the IP address and the trailing newline
-                parts = line.split()
-                if len(parts) > 1:
-                    domain = parts[1]
-                    # Skip the localhost entry
-                    if domain == "localhost":
-                        continue
-                else:
-                    continue
-            else:
-                domain = line
-
-            # Skip if TLD is not in the list
-            if self.tld_list and domain.endswith(tuple(self.tld_list)):
-                continue
-
-            domains.append(domain)
-
-        self.logger.debug(f"{file_name} - Number of domains: {CustomFormatter.YELLOW}{len(domains)}")
-
+        self.logger.debug(
+            f"{file_name} - Number of domains: {CustomFormatter.YELLOW}{len(domains)}"
+        )
         return domains
 
 if __name__ == "__main__":
