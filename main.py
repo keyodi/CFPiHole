@@ -156,16 +156,24 @@ class App:
             ip in line for line in data[:50] for ip in ["127.0.0.1 ", "0.0.0.0 "]
         )
 
-        domains = {
-            (line.split()[1] if is_hosts_file and len(line.split()) > 1 else line.strip())
-            .lower()
-            .rstrip(".")
-            for line in data
-            if line.strip()
-            and not line.startswith(("#", ";"))
-            and not (is_hosts_file and "localhost" in line.lower())
-            and not (self.tld_tuple and line.strip().lower().endswith(self.tld_tuple))
-        }
+        tld_set = set(self.tld_tuple)
+        domains = set()
+
+        for line in data:
+            line = line.strip()
+            if not line or line.startswith(("#", ";")):
+                continue
+        
+            domain = (line.split()[1] if is_hosts_file and len(line.split()) > 1 else line).lower().rstrip(".")
+        
+            if is_hosts_file and "localhost" in domain:
+                continue
+
+            domain_parts = domain.split('.')
+            if domain_parts and domain_parts[-1] in tld_set:
+                continue
+
+            domains.add(domain)
 
         self.logger.debug(
             f"{file_name} - Number of domains: {CustomFormatter.YELLOW}{len(domains)}"
