@@ -36,7 +36,7 @@ def api_call(method, endpoint, json=None):
         logger.error(
             "HTTP error occurred - Error most likely caused by CF rate limit. Retrying"
         )
-        raise SystemExit(1)
+        raise SystemExit(64)
 
 def get_lists(name_prefix: str):
     """Retrieves lists with a specific name prefix."""

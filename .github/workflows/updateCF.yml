@@ -36,8 +36,6 @@ jobs:
         CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
         CF_IDENTIFIER: ${{ secrets.CF_IDENTIFIER }}
       run: |
-        set -eo pipefail
-
         # Configurable:
         max_attempts=3       # total attempts (1 initial + retries)
         delay_seconds=300    # fixed 5-minute wait between attempts
@@ -46,19 +44,24 @@ jobs:
         attempt=1
         while true; do
           echo "Attempt $attempt of $max_attempts: running update..."
-          
-          if python main.py; then 
+
+          set +e
+          python main.py
+          exit_code=$?
+          set -e
+
+          if [ $exit_code -eq 0 ]; then
             echo "Update succeeded on attempt $attempt."
             break
           fi
 
-          if [ "$attempt" -ge "$max_attempts" ]; then
-            echo "Update failed after $attempt attempts."
+          if [ $exit_code -eq 64 ] && [ "$attempt" -lt "$max_attempts" ]; then
+            echo "Rate limit (64) detected. Sleeping ${delay_minutes} min before retry..."
+            sleep "${delay_seconds}"  
+            attempt=$(( attempt + 1 ))
+          else
+            echo "Update failed with exit code $exit_code (or max retries reached)."
             exit 1
           fi
-
-          echo "Attempt $attempt failed — sleeping ${delay_minutes}min before retry..."
-          sleep "${delay_seconds}"
-
-          attempt=$(( attempt + 1 ))
         done
+
