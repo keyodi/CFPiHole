@@ -48,9 +48,9 @@ class App:
 
        # Only one TLD list expected
         if tld_files:
-            self.tld_tuple = tuple(self.parse_tld_file(tld_files[0])) 
+            self.tld_list = tuple(self.parse_tld_file(tld_files[0])) 
         else:
-            self.tld_tuple = ()
+            self.tld_list = ()
 
         # Parse other domain lists
         all_domains: set[str] = set()
@@ -156,7 +156,7 @@ class App:
             ip in line for line in data[:50] for ip in ["127.0.0.1 ", "0.0.0.0 "]
         )
 
-        tld_set = set(self.tld_tuple)
+        tld_set = set(self.tld_list)
         domains = set()
 
         for line in data:
