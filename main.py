@@ -156,8 +156,7 @@ class App:
             ip in line for line in data[:50] for ip in ["127.0.0.1 ", "0.0.0.0 "]
         )
 
-        tld_set = set(self.tld_list)
-        domains = set()
+        domains = set[str] = set()
 
         for line in data:
             line = line.strip()
@@ -170,7 +169,7 @@ class App:
                 continue
 
             domain_parts = domain.split('.')
-            if domain_parts and domain_parts[-1] in tld_set:
+            if domain_parts and domain_parts[-1] in self.tld_list:
                 continue
 
             domains.add(domain)
