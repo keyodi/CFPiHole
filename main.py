@@ -156,7 +156,7 @@ class App:
             ip in line for line in data[:50] for ip in ["127.0.0.1 ", "0.0.0.0 "]
         )
 
-        domains = set[str] = set()
+        domains: set[str] = set()
 
         for line in data:
             line = line.strip()
