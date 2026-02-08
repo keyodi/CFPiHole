@@ -14,6 +14,7 @@ TIMEOUT = 15
 MAX_LISTS_ALLOWED = 300
 LIST_CHUNK_SIZE = 1000
 
+
 class App:
     def __init__(self):
         # Configure logging
@@ -28,7 +29,7 @@ class App:
 
         config = configparser.ConfigParser()
         config.read(FILE_PATH_CONFIG)
-        
+
         # Check if the file was loaded and has the required 'Lists' section
         if not config.has_section("Lists"):
             self.logger.error(
@@ -37,8 +38,9 @@ class App:
             return
 
         list_names = config.options("Lists")
-        tld_files = [name for name in list_names if "tld" in name.lower()]
-        block_files = [name for name in list_names if "tld" not in name.lower()]
+        tld_files, block_files = [], []
+        for name in list_names:
+            (tld_files if "tld" in name.lower() else block_files).append(name)
 
         # Download all files first
         with requests.Session() as session:
@@ -46,11 +48,9 @@ class App:
                 self.logger.debug(f"Setting list {domain_list}")
                 self.download_file(session, config["Lists"][domain_list], domain_list)
 
-       # Only one TLD list expected
+        # Only one TLD list expected
         if tld_files:
-            self.tld_list = tuple(self.parse_tld_file(tld_files[0])) 
-        else:
-            self.tld_list = ()
+            self.tld_list = self.parse_tld_file(tld_files[0])
 
         # Parse other domain lists
         all_domains: set[str] = set()
@@ -92,7 +92,9 @@ class App:
 
         # Create/Delete/Manage Cloudflare policies
         if self.tld_list:
-            cloudflare_config.create_firewall_policy(NAME_PREFIX_TLD, sorted(self.tld_list))
+            cloudflare_config.create_firewall_policy(
+                NAME_PREFIX_TLD, sorted(self.tld_list)
+            )
         else:
             cloudflare_config.delete_firewall_policy(NAME_PREFIX_TLD)
 
@@ -162,13 +164,17 @@ class App:
             line = line.strip()
             if not line or line.startswith(("#", ";")):
                 continue
-        
-            domain = (line.split()[1] if is_hosts_file and len(line.split()) > 1 else line).lower().rstrip(".")
-        
+
+            domain = (
+                (line.split()[1] if is_hosts_file and len(line.split()) > 1 else line)
+                .lower()
+                .rstrip(".")
+            )
+
             if is_hosts_file and "localhost" in domain:
                 continue
 
-            domain_parts = domain.split('.')
+            domain_parts = domain.split(".")
             if domain_parts and domain_parts[-1] in self.tld_list:
                 continue
 
