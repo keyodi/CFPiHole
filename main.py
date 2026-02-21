@@ -14,7 +14,6 @@ TIMEOUT = 15
 MAX_LISTS_ALLOWED = 300
 LIST_CHUNK_SIZE = 1000
 
-
 class App:
     def __init__(self):
         # Configure logging
@@ -150,7 +149,11 @@ class App:
 
         file_path = TMP_DIR_PATH / file_name
 
-        with file_path.open("r") as file:
+        if not file_path.exists():
+            self.logger.warning(f"Missing {file_path}, skipping")
+            return set()
+
+        with file_path.open("r", encoding="utf-8", errors="ignore") as file:
             data = file.readlines()
 
         # Check first 50 lines for hosts file indicator
