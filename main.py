@@ -126,7 +126,7 @@ class App:
             self.logger.warning(f"Missing {file_path}, skipping")
             return tlds
 
-        with file_path.open("r") as file:
+        with file_path.open("r", encoding="utf-8", errors="ignore") as file:
             for line in file:
                 line = line.strip()
 
@@ -148,10 +148,11 @@ class App:
         """Converts a downloaded list or hosts file to a set of domains."""
 
         file_path = TMP_DIR_PATH / file_name
+        domains: set[str] = set()
 
         if not file_path.exists():
             self.logger.warning(f"Missing {file_path}, skipping")
-            return set()
+            return domains
 
         with file_path.open("r", encoding="utf-8", errors="ignore") as file:
             data = file.readlines()
@@ -160,8 +161,6 @@ class App:
         is_hosts_file = any(
             ip in line for line in data[:50] for ip in ["127.0.0.1 ", "0.0.0.0 "]
         )
-
-        domains: set[str] = set()
 
         for line in data:
             line = line.strip()
