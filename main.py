@@ -155,37 +155,47 @@ class App:
             return domains
 
         with file_path.open("r", encoding="utf-8", errors="ignore") as file:
-            data = file.readlines()
-
-        # Check first 50 lines for hosts file indicator
-        is_hosts_file = any(
-            ip in line for line in data[:50] for ip in ["127.0.0.1 ", "0.0.0.0 "]
-        )
-
-        for line in data:
-            line = line.strip()
-            if not line or line.startswith(("#", ";")):
-                continue
-
-            domain = (
-                (line.split()[1] if is_hosts_file and len(line.split()) > 1 else line)
-                .lower()
-                .rstrip(".")
+            # Check first 50 lines for hosts file indicator
+            head = [next(file, "").strip() for _ in range(50)]
+            is_hosts_file = any(
+                ip in line for line in head for ip in ["127.0.0.1 ", "0.0.0.0 "]
             )
 
-            if is_hosts_file and "localhost" in domain:
-                continue
+            file.seek(0)
 
-            domain_parts = domain.split(".")
-            if domain_parts and domain_parts[-1] in self.tld_list:
-                continue
+            for line in file:
+                line = line.strip()
+                if not line or line.startswith(("#", ";")):
+                    continue
 
-            domains.add(domain)
+                parts = line.split()
+                domain = (
+                    (parts[1] if is_hosts_file and len(parts) > 1 else parts[0])
+                    .lower()
+                    .rstrip(".")
+                )
+
+                if is_hosts_file and "localhost" in domain:
+                    continue
+
+                domain_parts = domain.split(".")
+                is_blocked_tld = False
+                for i in range(len(domain_parts)):
+                    suffix = ".".join(domain_parts[-(i + 1) :])
+                    if suffix in self.tld_list:
+                        is_blocked_tld = True
+                        break
+
+                if is_blocked_tld:
+                    continue
+
+                domains.add(domain)
 
         self.logger.debug(
             f"{file_name} - Number of domains: {CustomFormatter.YELLOW}{len(domains)}"
         )
         return domains
+
 
 if __name__ == "__main__":
     App().run()
