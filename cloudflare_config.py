@@ -29,17 +29,10 @@ def create_firewall_policy(
         regex_tld = rf"[.](|{'|'.join(list_ids or [])})$"
         list_ids = None
 
-    if num_policies == 0:
-        cloudflare_api.create_gateway_policy(
-            name_prefix, list_ids=list_ids, regex_tld=regex_tld
-        )
-    elif num_policies == 1:
-        cloudflare_api.delete_firewall_policy(name_prefix, cf_policies[0]["id"])
-        cloudflare_api.create_gateway_policy(
-            name_prefix, list_ids=list_ids, regex_tld=regex_tld
-        )
-    else:
-        raise Exception("More than one firewall policy found")
+    delete_firewall_policy(name_prefix)
+    cloudflare_api.create_gateway_policy(
+        name_prefix, list_ids=list_ids, regex_tld=regex_tld
+    )
 
 def delete_firewall_policy(name_prefix: str):
     """Deletes a blocking policy from Cloudflare."""
