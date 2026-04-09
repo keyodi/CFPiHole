@@ -179,13 +179,11 @@ class App:
                     continue
 
                 domain_parts = domain.split(".")
-                is_blocked_tld = False
-                for i in range(len(domain_parts)):
-                    suffix = ".".join(domain_parts[-(i + 1) :])
-                    if suffix in self.tld_list:
-                        is_blocked_tld = True
-                        break
-
+                is_blocked_tld = any(
+                    ".".join(domain_parts[-(i + 1) :]) in self.tld_list
+                    for i in range(len(domain_parts))
+                )
+            
                 if is_blocked_tld:
                     continue
 
