@@ -155,20 +155,25 @@ class App:
             return domains
 
         with file_path.open("r", encoding="utf-8", errors="ignore") as file:
-            # Check first 50 lines for hosts file indicator
-            head = [next(file, "").strip() for _ in range(50)]
-            is_hosts_file = any(
-                ip in line for line in head for ip in ["127.0.0.1 ", "0.0.0.0 "]
-            )
-
-            file.seek(0)
+            is_hosts_file = None  # None = undetermined
+            line_count = 0
 
             for line in file:
                 line = line.strip()
                 if not line or line.startswith(("#", ";")):
                     continue
 
+                # Detect file format on first data line
+                if is_hosts_file is None:
+                    is_hosts_file = any(
+                        ip in line for ip in ["127.0.0.1 ", "0.0.0.0 "]
+                    )
+
+                # Extract domain
                 parts = line.split()
+                if not parts:
+                    continue
+                
                 domain = (
                     (parts[1] if is_hosts_file and len(parts) > 1 else parts[0])
                     .lower()
@@ -188,6 +193,7 @@ class App:
                     continue
 
                 domains.add(domain)
+                line_count += 1
 
         self.logger.debug(
             f"{file_name} - Number of domains: {CustomFormatter.YELLOW}{len(domains)}"
