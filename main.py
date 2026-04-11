@@ -14,6 +14,7 @@ TIMEOUT = 15
 MAX_LISTS_ALLOWED = 300
 LIST_CHUNK_SIZE = 1000
 
+
 class App:
     def __init__(self):
         # Configure logging
@@ -92,7 +93,9 @@ class App:
         # Create/Delete/Manage Cloudflare policies
         cloudflare_config.delete_firewall_policy(NAME_PREFIX_TLD)
         if self.tld_list:
-            cloudflare_config.create_firewall_policy(NAME_PREFIX_TLD, sorted(self.tld_list))
+            cloudflare_config.create_firewall_policy(
+                NAME_PREFIX_TLD, sorted(self.tld_list)
+            )
 
         cloudflare_config.delete_lists_policy(NAME_PREFIX, cf_lists)
         cloudflare_config.create_lists_policy(NAME_PREFIX, sorted(all_domains))
@@ -160,15 +163,13 @@ class App:
 
                 # Detect file format on first data line
                 if is_hosts_file is None:
-                    is_hosts_file = any(
-                        ip in line for ip in ["127.0.0.1 ", "0.0.0.0 "]
-                    )
+                    is_hosts_file = any(ip in line for ip in ["127.0.0.1 ", "0.0.0.0 "])
 
                 # Extract domain
                 parts = line.split()
                 if not parts:
                     continue
-                
+
                 domain = (
                     (parts[1] if is_hosts_file and len(parts) > 1 else parts[0])
                     .lower()
@@ -183,7 +184,7 @@ class App:
                     ".".join(domain_parts[-(i + 1) :]) in self.tld_list
                     for i in range(len(domain_parts))
                 )
-            
+
                 if is_blocked_tld:
                     continue
 
