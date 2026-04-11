@@ -27,7 +27,6 @@ def create_firewall_policy(
         regex_tld = rf"[.](|{'|'.join(list_ids or [])})$"
         list_ids = None
 
-    delete_firewall_policy(name_prefix)
     cloudflare_api.create_gateway_policy(
         name_prefix, list_ids=list_ids, regex_tld=regex_tld
     )
