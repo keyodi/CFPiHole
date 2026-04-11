@@ -23,8 +23,6 @@ def create_firewall_policy(
 ):
     """Creates a block policy in the Firewall policy"""
 
-    cf_policies, num_policies = get_gateway_policies(name_prefix)
-
     if "TLDs" in name_prefix:
         regex_tld = rf"[.](|{'|'.join(list_ids or [])})$"
         list_ids = None
