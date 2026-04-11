@@ -156,7 +156,6 @@ class App:
 
         with file_path.open("r", encoding="utf-8", errors="ignore") as file:
             is_hosts_file = None  # None = undetermined
-            line_count = 0
 
             for line in file:
                 line = line.strip()
@@ -193,7 +192,6 @@ class App:
                     continue
 
                 domains.add(domain)
-                line_count += 1
 
         self.logger.debug(
             f"{file_name} - Number of domains: {CustomFormatter.YELLOW}{len(domains)}"
