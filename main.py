@@ -133,7 +133,6 @@ class App:
                 if not line or line.startswith(("!", "#", ";", "//", "[")):
                     continue
 
-                line = line.split("#")[0].split("//")[0].strip()
                 line = line.removeprefix("||").removesuffix("^")
 
                 if line:
