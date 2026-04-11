@@ -6,7 +6,7 @@ logger = CustomFormatter.configure_logger("cloudflare_setup")
 
 def get_block_lists(name_prefix: str):
     """Gets block lists with defined name prefix"""
-    
+
     return cloudflare_api.get_lists(name_prefix)
 
 def get_gateway_policies(name_prefix: str):
@@ -68,4 +68,3 @@ def chunk_list(_list: list[str], n: int):
 
     for i in range(0, len(_list), n):
         yield _list[i : i + n]
-
