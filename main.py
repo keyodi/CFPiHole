@@ -90,12 +90,9 @@ class App:
             return
 
         # Create/Delete/Manage Cloudflare policies
+        cloudflare_config.delete_firewall_policy(NAME_PREFIX_TLD)
         if self.tld_list:
-            cloudflare_config.create_firewall_policy(
-                NAME_PREFIX_TLD, sorted(self.tld_list)
-            )
-        else:
-            cloudflare_config.delete_firewall_policy(NAME_PREFIX_TLD)
+            cloudflare_config.create_firewall_policy(NAME_PREFIX_TLD, sorted(self.tld_list))
 
         cloudflare_config.delete_lists_policy(NAME_PREFIX, cf_lists)
         cloudflare_config.create_lists_policy(NAME_PREFIX, sorted(all_domains))
