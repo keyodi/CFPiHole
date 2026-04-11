@@ -1,6 +1,5 @@
 from logger_config import CustomFormatter
 import cloudflare_api
-# Optional: import time
 
 # Configure logging
 logger = CustomFormatter.configure_logger("cloudflare_setup")
@@ -51,7 +50,6 @@ def delete_lists_policy(name_prefix: str, cf_lists: list[dict]):
     logger.info(f"{CustomFormatter.YELLOW} Deleting lists, please wait")
     for l in cf_lists:
         cloudflare_api.delete_list(l["id"], l["name"])
-        # Optional: time.sleep(1.5)  # Prevent rate limit if needed
 
 def create_lists_policy(name_prefix: str, unique_domains: list[str]):
     """Creates new lists with chunking and handles rate limits."""
@@ -62,7 +60,6 @@ def create_lists_policy(name_prefix: str, unique_domains: list[str]):
         list_name = f"{name_prefix} {i}"
         _list = cloudflare_api.create_list(list_name, chunk)
         cf_lists.append(_list)
-        # Optional: time.sleep(1.5)  # Prevent rate limit if needed
 
     create_firewall_policy(name_prefix, [l["id"] for l in cf_lists])
 
