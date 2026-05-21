@@ -1,7 +1,6 @@
 from logger_config import CustomFormatter
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from itertools import islice
 import requests
 import cloudflare_config
 import configparser
@@ -187,7 +186,7 @@ class App:
             tlds = {
                 line.removeprefix("||").removesuffix("^")
                 for line in content.splitlines()
-                if (line := line.strip()) and not line.startswith(SKIP_PREFIXES)
+                if line.strip() and not line.strip().startswith(SKIP_PREFIXES)
             }
 
             self.logger.info(
