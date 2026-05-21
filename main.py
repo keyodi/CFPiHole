@@ -129,11 +129,11 @@ class App:
             for domain_list in list_names:
                 url = config["Lists"][domain_list]
                 future = executor.submit(self.download_file, url, domain_list)
-                futures[future] = domain_list
+                futures[future] = (domain_list, url)
             
             # Process completed downloads
             for future in as_completed(futures):
-                domain_list = futures[future]
+                domain_list, url = futures[future]
                 try:
                     future.result()
                 except Exception as e:
@@ -148,7 +148,8 @@ class App:
             response.raise_for_status()
             file_path = TMP_DIR_PATH / name
             file_path.write_bytes(response.content)
-            self.logger.info(f"File size: {file_path.stat().st_size / 1024:.0f} KB")
+            file_size_kb = file_path.stat().st_size / 1024
+            self.logger.info(f"File size: {CustomFormatter.GREEN}{file_size_kb:.0f} KB")
         except requests.RequestException as e:
             self.logger.error(f"Error downloading {url}: {e}")
 
