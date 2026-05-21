@@ -123,35 +123,38 @@ class App:
 
     def _download_files_parallel(self, config, list_names):
         """Download all files in parallel using ThreadPoolExecutor."""
-        futures = {}
+        download_map = {domain_list: config["Lists"][domain_list] for domain_list in list_names}
         
         with ThreadPoolExecutor(max_workers=DOWNLOAD_WORKERS) as executor:
-            for domain_list in list_names:
-                url = config["Lists"][domain_list]
-                future = executor.submit(self.download_file, url, domain_list)
-                futures[future] = (domain_list, url)
+            futures = {
+                executor.submit(self.download_file, url, name): (name, url)
+                for name, url in download_map.items()
+            }
             
             # Process completed downloads
             for future in as_completed(futures):
-                domain_list, url = futures[future]
+                name, url = futures[future]
                 try:
-                    future.result()
+                    file_size_kb = future.result()
+                    if file_size_kb is not None:
+                        self.logger.info(f"Downloading file from {url}")
+                        self.logger.info(f"File size: {CustomFormatter.GREEN}{file_size_kb:.0f} KB")
                 except Exception as e:
-                    self.logger.error(f"Failed to download {domain_list}: {e}")
+                    self.logger.error(f"Failed to download {name}: {e}")
 
     def download_file(self, url, name):
         """Downloads a file from the given URL and saves it to the temporary directory."""
-        self.logger.info(f"Downloading file from {url}")
-
         try:
             response = self.session.get(url, allow_redirects=True, timeout=TIMEOUT)
             response.raise_for_status()
             file_path = TMP_DIR_PATH / name
             file_path.write_bytes(response.content)
             file_size_kb = file_path.stat().st_size / 1024
-            self.logger.info(f"File size: {CustomFormatter.GREEN}{file_size_kb:.0f} KB")
+            
+            return file_size_kb
         except requests.RequestException as e:
             self.logger.error(f"Error downloading {url}: {e}")
+            return None
 
     def parse_all_files(self, tld_files, block_files) -> set[str]:
         """Parse TLD and domain lists in one pass through files."""
