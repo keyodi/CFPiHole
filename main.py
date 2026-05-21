@@ -1,5 +1,7 @@
 from logger_config import CustomFormatter
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from itertools import islice
 import requests
 import cloudflare_config
 import configparser
@@ -13,6 +15,9 @@ TMP_DIR_PATH = Path("./tmp")
 TIMEOUT = 15
 MAX_LISTS_ALLOWED = 300
 LIST_CHUNK_SIZE = 1000
+DOWNLOAD_WORKERS = 5
+SKIP_PREFIXES = ("!", "#", ";", "//", "[")
+COMMENT_CHARS = frozenset("#;")
 
 
 class App:
@@ -21,6 +26,22 @@ class App:
         self.logger = CustomFormatter.configure_logger("main")
         self.tld_list: set[str] = set()
         self.blocked_tld_suffixes: set[str] = set()
+        self.session = None
+
+    def _configure_session(self):
+        """Configure requests session with connection pooling and retry strategy."""
+        self.session = requests.Session()
+        adapter = requests.adapters.HTTPAdapter(
+            pool_connections=10,
+            pool_maxsize=10,
+            max_retries=requests.adapters.Retry(
+                total=3,
+                backoff_factor=0.5,
+                status_forcelist=[429, 500, 502, 503, 504]
+            )
+        )
+        self.session.mount('http://', adapter)
+        self.session.mount('https://', adapter)
 
     def run(self):
         """Fetches domains, creates lists, and manages firewall policies."""
@@ -40,6 +61,8 @@ class App:
 
         list_names = config.options("Lists")
         tld_files, block_files = [], []
+        
+        # Separate TLD and block files
         for name in list_names:
             (tld_files if "tld" in name.lower() else block_files).append(name)
 
@@ -54,11 +77,13 @@ class App:
             f"Additional lists in Cloudflare: {CustomFormatter.YELLOW}{diff_cf_lists}"
         )
 
-        # Download all files
-        with requests.Session() as session:
-            for domain_list in list_names:
-                self.logger.debug(f"Setting list {domain_list}")
-                self.download_file(session, config["Lists"][domain_list], domain_list)
+        # Download all files in parallel
+        self._configure_session()
+        try:
+            self._download_files_parallel(config, list_names)
+        finally:
+            if self.session:
+                self.session.close()
 
         # Parse all files in one pass
         all_domains = self.parse_all_files(tld_files, block_files)
@@ -97,13 +122,30 @@ class App:
 
         self.logger.info(f"{CustomFormatter.GREEN}Done")
 
-    def download_file(self, session, url, name):
-        """Downloads a file from the given URL and saves it to the temporary directory."""
+    def _download_files_parallel(self, config, list_names):
+        """Download all files in parallel using ThreadPoolExecutor."""
+        futures = {}
+        
+        with ThreadPoolExecutor(max_workers=DOWNLOAD_WORKERS) as executor:
+            for domain_list in list_names:
+                url = config["Lists"][domain_list]
+                future = executor.submit(self.download_file, url, domain_list)
+                futures[future] = domain_list
+            
+            # Process completed downloads
+            for future in as_completed(futures):
+                domain_list = futures[future]
+                try:
+                    future.result()
+                except Exception as e:
+                    self.logger.error(f"Failed to download {domain_list}: {e}")
 
+    def download_file(self, url, name):
+        """Downloads a file from the given URL and saves it to the temporary directory."""
         self.logger.info(f"Downloading file from {url}")
 
         try:
-            response = session.get(url, allow_redirects=True, timeout=TIMEOUT)
+            response = self.session.get(url, allow_redirects=True, timeout=TIMEOUT)
             response.raise_for_status()
             file_path = TMP_DIR_PATH / name
             file_path.write_bytes(response.content)
@@ -132,50 +174,55 @@ class App:
         """Parse Adblock-formatted TLDs from the downloaded file in tmp/."""
 
         file_path = TMP_DIR_PATH / filename
-        tlds: set[str] = set()
 
         if not file_path.exists():
             self.logger.warning(f"Missing {file_path}, skipping")
+            return set()
+
+        try:
+            # Read entire file at once for better performance
+            content = file_path.read_text(encoding="utf-8", errors="ignore")
+            
+            # Use set comprehension for efficiency
+            tlds = {
+                line.removeprefix("||").removesuffix("^")
+                for line in content.splitlines()
+                if (line := line.strip()) and not line.startswith(SKIP_PREFIXES)
+            }
+
+            self.logger.info(
+                f"Number of TLDs from remote list: {CustomFormatter.GREEN}{len(tlds)}"
+            )
             return tlds
-
-        with file_path.open("r", encoding="utf-8", errors="ignore") as file:
-            for line in file:
-                line = line.strip()
-
-                if not line or line.startswith(("!", "#", ";", "//", "[")):
-                    continue
-
-                line = line.removeprefix("||").removesuffix("^")
-
-                if line:
-                    tlds.add(line)
-
-        self.logger.info(
-            f"Number of TLDs from remote list: {CustomFormatter.GREEN}{len(tlds)}"
-        )
-        return tlds
+        except Exception as e:
+            self.logger.error(f"Error parsing TLD file {filename}: {e}")
+            return set()
 
     def convert_to_domain_list(self, file_name: str) -> set[str]:
         """Converts a downloaded list or hosts file to a set of domains."""
 
         file_path = TMP_DIR_PATH / file_name
-        domains: set[str] = set()
 
         if not file_path.exists():
             self.logger.warning(f"Missing {file_path}, skipping")
-            return domains
+            return set()
 
-        with file_path.open("r", encoding="utf-8", errors="ignore") as file:
+        try:
+            # Read entire file at once for better performance
+            content = file_path.read_text(encoding="utf-8", errors="ignore")
+            domains: set[str] = set()
             is_hosts_file = None  # None = undetermined
 
-            for line in file:
+            for line in content.splitlines():
                 line = line.strip()
-                if not line or line.startswith(("#", ";")):
+                
+                # Skip empty lines and comments faster
+                if not line or line[0] in COMMENT_CHARS:
                     continue
 
                 # Detect file format on first data line
                 if is_hosts_file is None:
-                    is_hosts_file = any(ip in line for ip in ["127.0.0.1 ", "0.0.0.0 "])
+                    is_hosts_file = "127.0.0.1 " in line or "0.0.0.0 " in line
 
                 # Extract domain
                 parts = line.split()
@@ -191,6 +238,7 @@ class App:
                 if is_hosts_file and "localhost" in domain:
                     continue
 
+                # Use generator with any() for early exit on match
                 if self.blocked_tld_suffixes and any(
                     domain.endswith(suffix) for suffix in self.blocked_tld_suffixes
                 ):
@@ -198,10 +246,13 @@ class App:
 
                 domains.add(domain)
 
-        self.logger.debug(
-            f"{file_name} - Number of domains: {CustomFormatter.YELLOW}{len(domains)}"
-        )
-        return domains
+            self.logger.debug(
+                f"{file_name} - Number of domains: {CustomFormatter.YELLOW}{len(domains)}"
+            )
+            return domains
+        except Exception as e:
+            self.logger.error(f"Error parsing domain file {file_name}: {e}")
+            return set()
 
 
 if __name__ == "__main__":
