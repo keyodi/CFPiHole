@@ -4,7 +4,6 @@ import requests
 import cloudflare_config
 import configparser
 
-
 # Constants
 NAME_PREFIX = "[CFPihole] Block Ads"
 NAME_PREFIX_TLD = "[CFPihole] Block TLDs"
@@ -20,6 +19,7 @@ class App:
         # Configure logging
         self.logger = CustomFormatter.configure_logger("main")
         self.tld_list: set[str] = set()
+        self.blocked_tld_suffixes: set[str] = set()
 
     def run(self):
         """Fetches domains, creates lists, and manages firewall policies."""
@@ -42,20 +42,23 @@ class App:
         for name in list_names:
             (tld_files if "tld" in name.lower() else block_files).append(name)
 
-        # Download all files first
+        cf_lists, total_cf_lists = cloudflare_config.get_block_lists(NAME_PREFIX)
+        diff_cf_lists = len(total_cf_lists) - len(cf_lists)
+
+        self.logger.debug(
+            f"Number of CFPiHole lists in Cloudflare: {CustomFormatter.YELLOW}{len(cf_lists)}"
+        )
+        self.logger.debug(
+            f"Additional lists in Cloudflare: {CustomFormatter.YELLOW}{diff_cf_lists}"
+        )
+
         with requests.Session() as session:
             for domain_list in list_names:
                 self.logger.debug(f"Setting list {domain_list}")
                 self.download_file(session, config["Lists"][domain_list], domain_list)
 
-        # Only one TLD list expected
-        if tld_files:
-            self.tld_list = self.parse_tld_file(tld_files[0])
-
-        # Parse other domain lists
-        all_domains: set[str] = set()
-        for domain_list in block_files:
-            all_domains |= self.convert_to_domain_list(domain_list)
+        # Parse all files in one pass
+        all_domains = self.parse_all_files(tld_files, block_files)
 
         unique_domains = len(all_domains)
         total_new_lists = -(-unique_domains // LIST_CHUNK_SIZE)
@@ -65,17 +68,6 @@ class App:
         )
         self.logger.info(
             f"Total lists to create: {CustomFormatter.GREEN}{total_new_lists}"
-        )
-
-        # Check list size and limits
-        cf_lists, total_cf_lists = cloudflare_config.get_block_lists(NAME_PREFIX)
-        diff_cf_lists = len(total_cf_lists) - len(cf_lists)
-
-        self.logger.debug(
-            f"Number of CFPiHole lists in Cloudflare: {CustomFormatter.YELLOW}{len(cf_lists)}"
-        )
-        self.logger.debug(
-            f"Additional lists in Cloudflare: {CustomFormatter.YELLOW}{diff_cf_lists}"
         )
 
         # Compare the lists size
@@ -115,6 +107,24 @@ class App:
             self.logger.info(f"File size: {file_path.stat().st_size / 1024:.0f} KB")
         except requests.RequestException as e:
             self.logger.error(f"Error downloading {url}: {e}")
+
+    def parse_all_files(self, tld_files, block_files) -> set[str]:
+        """Parse TLD and domain lists in one pass through files."""
+
+        self.tld_list = set()
+        all_domains: set[str] = set()
+
+        # Parse TLD file if present
+        if tld_files:
+            self.tld_list = self.parse_tld_file(tld_files[0])
+
+            self.blocked_tld_suffixes = {f".{tld}" for tld in self.tld_list}
+
+        # Parse domain block lists
+        for domain_list in block_files:
+            all_domains |= self.convert_to_domain_list(domain_list)
+
+        return all_domains
 
     def parse_tld_file(self, filename) -> set[str]:
         """Parse Adblock-formatted TLDs from the downloaded file in tmp/."""
@@ -179,13 +189,10 @@ class App:
                 if is_hosts_file and "localhost" in domain:
                     continue
 
-                domain_parts = domain.split(".")
-                is_blocked_tld = any(
-                    ".".join(domain_parts[-(i + 1) :]) in self.tld_list
-                    for i in range(len(domain_parts))
-                )
-
-                if is_blocked_tld:
+                # Use pre-compiled TLD suffixes for faster lookup
+                if self.blocked_tld_suffixes and any(
+                    domain.endswith(suffix) for suffix in self.blocked_tld_suffixes
+                ):
                     continue
 
                 domains.add(domain)
