@@ -1,207 +1,159 @@
-from logger_config import CustomFormatter
-from pathlib import Path
-import requests
-import cloudflare_config
 import configparser
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+import cloudflare_config
+import requests
+from logger_config import CustomFormatter
 
 # Constants
 NAME_PREFIX = "[CFPihole] Block Ads"
 NAME_PREFIX_TLD = "[CFPihole] Block TLDs"
 FILE_PATH_CONFIG = "config.ini"
-TMP_DIR_PATH = Path("./tmp")
+TMP_DIR = Path("./tmp")
 TIMEOUT = 15
 MAX_LISTS_ALLOWED = 300
 LIST_CHUNK_SIZE = 1000
 
+logger = CustomFormatter.configure_logger("main")
 
-class App:
-    def __init__(self):
-        # Configure logging
-        self.logger = CustomFormatter.configure_logger("main")
-        self.tld_list: set[str] = set()
-        self.blocked_tld_suffixes: set[str] = set()
 
-    def run(self):
-        """Fetches domains, creates lists, and manages firewall policies."""
+def download_file(session: requests.Session, url: str, name: str) -> None:
+    """Download a URL and save it to TMP_DIR/<name>."""
+    try:
+        response = session.get(url, allow_redirects=True, timeout=TIMEOUT)
+        response.raise_for_status()
+        (TMP_DIR / name).write_bytes(response.content)
+        logger.info(f"Downloaded {url} ({len(response.content) / 1024:.0f} KB)")
+    except requests.RequestException as e:
+        logger.error(f"Error downloading {url}: {e}")
 
-        # Ensure tmp directory exists
-        TMP_DIR_PATH.mkdir(exist_ok=True)
 
-        config = configparser.ConfigParser()
-        config.read(FILE_PATH_CONFIG)
+def parse_lines(path: Path) -> list[str]:
+    """Read non-comment, non-empty lines from a file."""
+    if not path.exists():
+        logger.warning(f"Missing {path}, skipping")
+        return []
+    with path.open("r", encoding="utf-8", errors="ignore") as f:
+        return [
+            stripped
+            for line in f
+            if (stripped := line.strip())
+            and not stripped.startswith(("!", "#", ";", "//", "["))
+        ]
 
-        # Check if the file was loaded and has the required 'Lists' section
-        if not config.has_section("Lists"):
-            self.logger.error(
-                f"Error: {FILE_PATH_CONFIG} is missing the [Lists] section, file doesn't exist or duplicate values."
-            )
-            return
 
-        list_names = config.options("Lists")
-        tld_files, block_files = [], []
-        for name in list_names:
-            (tld_files if "tld" in name.lower() else block_files).append(name)
+def parse_tld_file(name: str) -> set[str]:
+    """Parse Adblock-formatted TLDs; returns bare TLD strings."""
+    tlds = {
+        stripped
+        for line in parse_lines(TMP_DIR / name)
+        if (stripped := line.removeprefix("||").removesuffix("^"))
+    }
+    logger.info(f"TLDs loaded: {CustomFormatter.GREEN}{len(tlds)}")
+    return tlds
 
-        cf_lists, total_cf_lists = cloudflare_config.get_block_lists(NAME_PREFIX)
-        diff_cf_lists = len(total_cf_lists) - len(cf_lists)
 
-        self.logger.debug(
-            f"Number of CFPiHole lists in Cloudflare: {CustomFormatter.YELLOW}{len(cf_lists)}"
+def is_tld_blocked(domain: str, tld_set: set[str]) -> bool:
+    """Return True if the domain falls under a blocked TLD."""
+    parts = domain.rsplit(".", 2)
+    return (len(parts) >= 2 and parts[-1] in tld_set) or (
+        len(parts) == 3 and f"{parts[-2]}.{parts[-1]}" in tld_set
+    )
+
+
+def parse_domain_file(name: str, tld_set: set[str]) -> set[str]:
+    """Convert a hosts or adblock list to a set of domains."""
+    lines = parse_lines(TMP_DIR / name)
+    if not lines:
+        return set()
+
+    is_hosts = lines[0].startswith(("127.0.0.1 ", "0.0.0.0 "))
+    domains: set[str] = set()
+
+    for line in lines:
+        parts = line.split()
+        if not parts:
+            continue
+        domain = (
+            (parts[1] if is_hosts and len(parts) > 1 else parts[0]).lower().rstrip(".")
         )
-        self.logger.debug(
-            f"Additional lists in Cloudflare: {CustomFormatter.YELLOW}{diff_cf_lists}"
+        if is_hosts and "localhost" in domain:
+            continue
+        if tld_set and is_tld_blocked(domain, tld_set):
+            continue
+        domains.add(domain)
+
+    logger.debug(f"{name} — domains: {CustomFormatter.YELLOW}{len(domains)}")
+    return domains
+
+
+def run() -> None:
+    TMP_DIR.mkdir(exist_ok=True)
+
+    config = configparser.ConfigParser()
+    config.read(FILE_PATH_CONFIG)
+
+    if not config.has_section("Lists"):
+        logger.error(
+            f"{FILE_PATH_CONFIG} is missing [Lists], doesn't exist, or has duplicate values."
+        )
+        return
+
+    list_names = config.options("Lists")
+    tld_files = [n for n in list_names if "tld" in n.lower()]
+    block_files = [n for n in list_names if "tld" not in n.lower()]
+
+    cf_lists, total_cf_lists = cloudflare_config.get_block_lists(NAME_PREFIX)
+    diff_cf_lists = len(total_cf_lists) - len(cf_lists)
+    logger.debug(
+        f"CFPiHole lists in Cloudflare: {CustomFormatter.YELLOW}{len(cf_lists)}"
+    )
+    logger.debug(
+        f"Additional lists in Cloudflare: {CustomFormatter.YELLOW}{diff_cf_lists}"
+    )
+
+    logger.info("Starting concurrent downloads...")
+    with requests.Session() as session:
+        with ThreadPoolExecutor(max_workers=min(len(list_names), 20)) as ex:
+            futures = [
+                ex.submit(download_file, session, config["Lists"][n], n)
+                for n in list_names
+            ]
+            for f in futures:
+                f.result()
+
+    tld_set = parse_tld_file(tld_files[0]) if tld_files else set()
+
+    with ThreadPoolExecutor(max_workers=min(len(block_files), 8)) as ex:
+        all_domains: set[str] = set().union(
+            *ex.map(lambda n: parse_domain_file(n, tld_set), block_files)
         )
 
-        with requests.Session() as session:
-            for domain_list in list_names:
-                self.logger.debug(f"Setting list {domain_list}")
-                self.download_file(session, config["Lists"][domain_list], domain_list)
+    unique_domains = len(all_domains)
+    total_new_lists = -(-unique_domains // LIST_CHUNK_SIZE)
 
-        # Parse all files in one pass
-        all_domains = self.parse_all_files(tld_files, block_files)
+    logger.info(f"Unique domains: {CustomFormatter.GREEN}{unique_domains}")
+    logger.info(f"Lists to create: {CustomFormatter.GREEN}{total_new_lists}")
 
-        unique_domains = len(all_domains)
-        total_new_lists = -(-unique_domains // LIST_CHUNK_SIZE)
+    if unique_domains == sum(l["count"] for l in cf_lists):
+        logger.warning("Lists are the same size, stopping")
+        return
 
-        self.logger.info(
-            f"Total count of unique domains in list: {CustomFormatter.GREEN}{unique_domains}"
+    if (total_new_lists + diff_cf_lists) > MAX_LISTS_ALLOWED:
+        logger.warning(
+            f"Max {MAX_LISTS_ALLOWED} lists allowed. Select smaller blocklists, stopping"
         )
-        self.logger.info(
-            f"Total lists to create: {CustomFormatter.GREEN}{total_new_lists}"
-        )
+        return
 
-        # Compare the lists size
-        if unique_domains == sum(l["count"] for l in cf_lists):
-            self.logger.warning("Lists are the same size, stopping")
-            return
+    cloudflare_config.delete_firewall_policy(NAME_PREFIX_TLD)
+    if tld_set:
+        cloudflare_config.create_firewall_policy(NAME_PREFIX_TLD, sorted(tld_set))
 
-        # Check total lists do not exceed limit
-        if (total_new_lists + diff_cf_lists) > MAX_LISTS_ALLOWED:
-            self.logger.warning(
-                f"Max of {MAX_LISTS_ALLOWED} lists allowed. Select smaller blocklists, stopping"
-            )
-            return
+    cloudflare_config.delete_lists_policy(NAME_PREFIX, cf_lists)
+    cloudflare_config.create_lists_policy(NAME_PREFIX, sorted(all_domains))
 
-        # Create/Delete/Manage Cloudflare policies
-        cloudflare_config.delete_firewall_policy(NAME_PREFIX_TLD)
-        if self.tld_list:
-            cloudflare_config.create_firewall_policy(
-                NAME_PREFIX_TLD, sorted(self.tld_list)
-            )
-
-        cloudflare_config.delete_lists_policy(NAME_PREFIX, cf_lists)
-        cloudflare_config.create_lists_policy(NAME_PREFIX, sorted(all_domains))
-
-        self.logger.info(f"{CustomFormatter.GREEN}Done")
-
-    def download_file(self, session, url, name):
-        """Downloads a file from the given URL and saves it to the temporary directory."""
-
-        self.logger.info(f"Downloading file from {url}")
-
-        try:
-            response = session.get(url, allow_redirects=True, timeout=TIMEOUT)
-            response.raise_for_status()
-            file_path = TMP_DIR_PATH / name
-            file_path.write_bytes(response.content)
-            self.logger.info(f"File size: {file_path.stat().st_size / 1024:.0f} KB")
-        except requests.RequestException as e:
-            self.logger.error(f"Error downloading {url}: {e}")
-
-    def parse_all_files(self, tld_files, block_files) -> set[str]:
-        """Parse TLD and domain lists in one pass through files."""
-
-        self.tld_list = set()
-        all_domains: set[str] = set()
-
-        # Parse TLD file if present
-        if tld_files:
-            self.tld_list = self.parse_tld_file(tld_files[0])
-
-            self.blocked_tld_suffixes = {f".{tld}" for tld in self.tld_list}
-
-        # Parse domain block lists
-        for domain_list in block_files:
-            all_domains |= self.convert_to_domain_list(domain_list)
-
-        return all_domains
-
-    def parse_tld_file(self, filename) -> set[str]:
-        """Parse Adblock-formatted TLDs from the downloaded file in tmp/."""
-
-        file_path = TMP_DIR_PATH / filename
-        tlds: set[str] = set()
-
-        if not file_path.exists():
-            self.logger.warning(f"Missing {file_path}, skipping")
-            return tlds
-
-        with file_path.open("r", encoding="utf-8", errors="ignore") as file:
-            for line in file:
-                line = line.strip()
-
-                if not line or line.startswith(("!", "#", ";", "//", "[")):
-                    continue
-
-                line = line.removeprefix("||").removesuffix("^")
-
-                if line:
-                    tlds.add(line)
-
-        self.logger.info(
-            f"Number of TLDs from remote list: {CustomFormatter.GREEN}{len(tlds)}"
-        )
-        return tlds
-
-    def convert_to_domain_list(self, file_name: str) -> set[str]:
-        """Converts a downloaded list or hosts file to a set of domains."""
-
-        file_path = TMP_DIR_PATH / file_name
-        domains: set[str] = set()
-
-        if not file_path.exists():
-            self.logger.warning(f"Missing {file_path}, skipping")
-            return domains
-
-        with file_path.open("r", encoding="utf-8", errors="ignore") as file:
-            is_hosts_file = None  # None = undetermined
-
-            for line in file:
-                line = line.strip()
-                if not line or line.startswith(("#", ";")):
-                    continue
-
-                # Detect file format on first data line
-                if is_hosts_file is None:
-                    is_hosts_file = any(ip in line for ip in ["127.0.0.1 ", "0.0.0.0 "])
-
-                # Extract domain
-                parts = line.split()
-                if not parts:
-                    continue
-
-                domain = (
-                    (parts[1] if is_hosts_file and len(parts) > 1 else parts[0])
-                    .lower()
-                    .rstrip(".")
-                )
-
-                if is_hosts_file and "localhost" in domain:
-                    continue
-
-                # Use pre-compiled TLD suffixes for faster lookup
-                if self.blocked_tld_suffixes and any(
-                    domain.endswith(suffix) for suffix in self.blocked_tld_suffixes
-                ):
-                    continue
-
-                domains.add(domain)
-
-        self.logger.debug(
-            f"{file_name} - Number of domains: {CustomFormatter.YELLOW}{len(domains)}"
-        )
-        return domains
+    logger.info(f"{CustomFormatter.GREEN}Done")
 
 
 if __name__ == "__main__":
-    App().run()
+    run()
