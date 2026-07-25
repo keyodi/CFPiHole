@@ -68,7 +68,6 @@ def parse_domain_file(name: str, tld_set: set[str]) -> set[str]:
 
     is_hosts = lines[0].startswith(("127.0.0.1 ", "0.0.0.0 "))
     domains: set[str] = set()
-    add = domains.add  # hoist attribute lookup out of the tight loop
 
     for line in lines:
         # partition avoids allocating a full split list for every line
@@ -78,7 +77,7 @@ def parse_domain_file(name: str, tld_set: set[str]) -> set[str]:
             continue
         if tld_set and is_tld_blocked(domain, tld_set):
             continue
-        add(domain)
+        domains.add(domain)
 
     logger.debug(f"{name} — domains: {CustomFormatter.YELLOW}{len(domains)}")
     return domains
