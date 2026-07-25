@@ -1,9 +1,10 @@
 import configparser
 import math
 from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from pathlib import Path
 import requests
-import cloudflare_config
+import cloudflare_api
 from logger_config import CustomFormatter
 
 # Constants
@@ -99,7 +100,7 @@ def run() -> None:
     tld_files = [n for n in list_names if "tld" in n.lower()]
     block_files = [n for n in list_names if "tld" not in n.lower()]
 
-    cf_lists, total_cf_lists = cloudflare_config.get_block_lists(NAME_PREFIX)
+    cf_lists, total_cf_lists = cloudflare_api.get_block_lists(NAME_PREFIX)
     extra_lists = len(total_cf_lists) - len(cf_lists)
     logger.debug(
         f"CFPiHole lists in Cloudflare: {CustomFormatter.YELLOW}{len(cf_lists)}"
@@ -117,14 +118,17 @@ def run() -> None:
             ]:
                 future.result()
 
-    tld_set = parse_tld_file(tld_files[0]) if tld_files else set()
+    # Parse TLDs if available (walrus operator simplification)
+    if tld_set := (parse_tld_file(tld_files[0]) if tld_files else set()):
+        pass
+    else:
+        tld_set = set()
 
-    # Parse all block files concurrently, then merge with update()
-    with ThreadPoolExecutor(max_workers=min(len(block_files), 8)) as ex:
-        domain_sets = list(ex.map(lambda n: parse_domain_file(n, tld_set), block_files))
+    # Parse all block files concurrently and stream results (no intermediate list)
     all_domains: set[str] = set()
-    for ds in domain_sets:
-        all_domains.update(ds)
+    with ThreadPoolExecutor(max_workers=min(len(block_files), 8)) as ex:
+        for domain_set in ex.map(partial(parse_domain_file, tld_set=tld_set), block_files):
+            all_domains.update(domain_set)
 
     unique_count = len(all_domains)
     new_list_count = math.ceil(unique_count / CHUNK_SIZE)
@@ -141,12 +145,11 @@ def run() -> None:
         )
         return
 
-    cloudflare_config.delete_firewall_policy(NAME_PREFIX_TLD)
+    cloudflare_api.delete_lists_and_policy(NAME_PREFIX, cf_lists)
     if tld_set:
-        cloudflare_config.create_firewall_policy(NAME_PREFIX_TLD, sorted(tld_set))
+        cloudflare_api.create_firewall_policy_with_domains(NAME_PREFIX_TLD, tld_list=sorted(tld_set))
 
-    cloudflare_config.delete_lists_policy(NAME_PREFIX, cf_lists)
-    cloudflare_config.create_lists_policy(NAME_PREFIX, sorted(all_domains))
+    cloudflare_api.create_lists_and_policy(NAME_PREFIX, sorted(all_domains))
 
     logger.info(f"{CustomFormatter.GREEN}Done")
 
