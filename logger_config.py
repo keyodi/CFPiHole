@@ -22,6 +22,7 @@ class CustomFormatter(logging.Formatter):
         record.msg = f"{color}{record.msg}{self.RESET}"
         return super().format(record)
 
+    @staticmethod
     def configure_logger(name: str, level: int = logging.INFO) -> logging.Logger:
         """Create and return a named logger with a colored StreamHandler attached."""
         logger = logging.getLogger(name)
