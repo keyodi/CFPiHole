@@ -100,7 +100,7 @@ def run() -> None:
     tld_files = [n for n in list_names if "tld" in n.lower()]
     block_files = [n for n in list_names if "tld" not in n.lower()]
 
-    cf_lists, total_cf_lists = cloudflare_api.get_block_lists(NAME_PREFIX)
+    cf_lists, total_cf_lists = cloudflare_api.get_lists(NAME_PREFIX)
     extra_lists = len(total_cf_lists) - len(cf_lists)
     logger.debug(
         f"CFPiHole lists in Cloudflare: {CustomFormatter.YELLOW}{len(cf_lists)}"
