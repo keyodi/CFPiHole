@@ -107,8 +107,6 @@ def create_gateway_policy(
     return data
 
 
-# === Config layer (formerly cloudflare_config.py) ===
-
 def get_block_lists(name_prefix: str):
     """Gets block lists with defined name prefix."""
     return get_lists(name_prefix)
@@ -153,12 +151,6 @@ def delete_lists_and_policy(name_prefix: str, cf_lists: list[dict]):
         delete_list(l["id"], l["name"])
 
 
-def chunk_list(_list: list[str], chunk_size: int):
-    """Yield successive chunk_size-sized chunks from _list."""
-    for i in range(0, len(_list), chunk_size):
-        yield _list[i : i + chunk_size]
-
-
 def create_lists_and_policy(name_prefix: str, unique_domains: list[str], chunk_size: int = 1000):
     """Creates new lists with chunking and creates firewall policy."""
     logger.info(f"{CustomFormatter.YELLOW}Creating lists, please wait")
@@ -169,3 +161,9 @@ def create_lists_and_policy(name_prefix: str, unique_domains: list[str], chunk_s
         cf_lists.append(_list)
 
     create_firewall_policy_with_domains(name_prefix, list_ids=[l["id"] for l in cf_lists])
+
+
+def chunk_list(_list: list[str], chunk_size: int):
+    """Yield successive chunk_size-sized chunks from _list."""
+    for i in range(0, len(_list), chunk_size):
+        yield _list[i : i + chunk_size]
