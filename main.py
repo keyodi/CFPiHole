@@ -107,12 +107,6 @@ def run() -> None:
     if not validate_config(config):
         return
 
-    if not config.has_section("Lists"):
-        logger.error(
-            f"{CONFIG_FILE} is missing [Lists], doesn't exist, or has duplicate values."
-        )
-        return
-
     list_names = config.options("Lists")
     tld_files = [n for n in list_names if "tld" in n.lower()]
     block_files = [n for n in list_names if "tld" not in n.lower()]
