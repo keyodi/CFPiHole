@@ -5,7 +5,6 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from logger_config import CustomFormatter
 from pathlib import Path
-from math import ceil
 
 # Constants
 NAME_PREFIX     = "[CFPihole] Block Ads"
@@ -144,7 +143,8 @@ def run() -> None:
             all_domains.update(domain_set)
 
     unique_count = len(all_domains)
-    new_list_count = math.ceil(unique_count / CHUNK_SIZE)
+    new_list_count = (len(unique_count) + CHUNK_SIZE - 1) // CHUNK_SIZE
+
     logger.info(f"Unique domains: {CustomFormatter.GREEN}{unique_count}")
     logger.info(f"Lists to create: {CustomFormatter.GREEN}{new_list_count}")
 
