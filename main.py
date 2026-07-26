@@ -54,12 +54,13 @@ def parse_tld_file(name: str) -> set[str]:
 
 
 def is_tld_blocked(domain: str, tld_set: set[str]) -> bool:
-    """Return True if the domain falls under a blocked TLD."""
-    left, _, tld = domain.rpartition(".")
-    if tld in tld_set:
-        return True
-    _, _, sld = left.rpartition(".")
-    return (sld + "." + tld) in tld_set
+    parts = domain.rsplit(".", 2)
+    if len(parts) >= 2:
+        if parts[-1] in tld_set:
+            return True
+        if len(parts) >= 3 and f"{parts[-2]}.{parts[-1]}" in tld_set:
+            return True
+    return False
 
 
 def parse_domain_file(name: str, tld_set: set[str]) -> set[str]:
@@ -110,23 +111,25 @@ def run() -> None:
     )
 
     logger.info("Starting concurrent downloads...")
+
+    MAX_DOWNLOAD_WORKERS = min(len(list_names), 32)
+    MAX_PARSE_WORKERS = min(len(block_files), 16)
+
     with requests.Session() as session:
-        with ThreadPoolExecutor(max_workers=min(len(list_names), 20)) as ex:
-            for future in [
+        with ThreadPoolExecutor(max_workers=MAX_DOWNLOAD_WORKERS) as ex:
+            futures = [
                 ex.submit(download_file, session, config["Lists"][n], n)
                 for n in list_names
-            ]:
+            ]
+            for future in futures:
                 future.result()
 
-    # Parse TLDs if available (walrus operator simplification)
-    if tld_set := (parse_tld_file(tld_files[0]) if tld_files else set()):
-        pass
-    else:
-        tld_set = set()
+    # Parse TLDs if available
+    tld_set = parse_tld_file(tld_files[0]) if tld_files else set()
 
-    # Parse all block files concurrently and stream results (no intermediate list)
+    # Parse all block files concurrently and stream results
     all_domains: set[str] = set()
-    with ThreadPoolExecutor(max_workers=min(len(block_files), 8)) as ex:
+    with ThreadPoolExecutor(max_workers= MAX_PARSE_WORKERS) as ex:
         for domain_set in ex.map(partial(parse_domain_file, tld_set=tld_set), block_files):
             all_domains.update(domain_set)
 
