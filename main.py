@@ -158,10 +158,11 @@ def run() -> None:
         )
         return
 
-    cloudflare_api.delete_lists_and_policy(NAME_PREFIX, cf_lists)
+    cloudflare_api. delete_firewall_policy_by_prefix(NAME_PREFIX_TLD)
     if tld_set:
         cloudflare_api.create_firewall_policy_with_domains(NAME_PREFIX_TLD, tld_list=sorted(tld_set))
 
+    cloudflare_api.delete_lists_and_policy(NAME_PREFIX, cf_lists)
     cloudflare_api.create_lists_and_policy(NAME_PREFIX, sorted(all_domains))
 
     logger.info(f"{CustomFormatter.GREEN}Done")
