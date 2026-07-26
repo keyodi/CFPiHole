@@ -2,7 +2,7 @@ from logger_config import CustomFormatter
 from dotenv import load_dotenv
 import requests
 import os
-
+import re
 
 # Load environment variables
 load_dotenv()
@@ -40,7 +40,8 @@ def api_call(method, endpoint, json=None):
 def get_lists(name_prefix: str):
     """Retrieves lists with a specific name prefix."""
     data = api_call(session.get, "lists") or []
-    return [l for l in data if l["name"].startswith(name_prefix)], data
+    filtered = [l for l in data if l["name"].startswith(name_prefix)]
+    return filtered, data
 
 
 def create_list(name: str, domains: list[str]):
@@ -114,10 +115,7 @@ def create_firewall_policy_with_domains(
     list_ids: list[str] | None = None,
     tld_list: list[str] | None = None,
 ):
-    """Creates a block policy in the Firewall policy.
-    
-    Handles TLD-based blocking by converting the TLD list into a regex pattern.
-    """
+    """Creates a block policy in the Firewall policy.Handles TLD-based blocking by converting the TLD list into a regex pattern."""
     if "TLDs" in name_prefix:
         regex_tld = rf"[.](|{'|'.join(tld_list or [])})$"
         list_ids = None
@@ -126,6 +124,21 @@ def create_firewall_policy_with_domains(
 
     create_gateway_policy(name_prefix, list_ids=list_ids, regex_tld=regex_tld)
 
+def create_firewall_policy_with_domains(
+    name_prefix: str,
+    list_ids: list[str] | None = None,
+    tld_list: list[str] | None = None,
+):
+     """Creates a block policy in the Firewall policy.Handles TLD-based blocking by converting the TLD list into a regex pattern."""
+    if "TLDs" in name_prefix and tld_list:
+        # More efficient: no empty branch, proper escaping
+        escaped_tlds = "|".join(re.escape(tld) for tld in sorted(tld_list))
+        regex_tld = rf"\.({escaped_tlds})$"
+        list_ids = None
+    else:
+        regex_tld = None
+
+    create_gateway_policy(name_prefix, list_ids=list_ids, regex_tld=regex_tld)
 
 def delete_lists_and_policy(name_prefix: str, cf_lists: list[dict]):
     """Deletes the blocking policy and then the lists in Cloudflare."""
