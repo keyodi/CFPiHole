@@ -1,11 +1,11 @@
 import configparser
-import math
+import cloudflare_api
+import requests
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
-from pathlib import Path
-import requests
-import cloudflare_api
 from logger_config import CustomFormatter
+from pathlib import Path
+from math import ceil
 
 # Constants
 NAME_PREFIX     = "[CFPihole] Block Ads"
