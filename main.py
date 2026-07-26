@@ -84,12 +84,28 @@ def parse_domain_file(name: str, tld_set: set[str]) -> set[str]:
     logger.debug(f"{name} — domains: {CustomFormatter.YELLOW}{len(domains)}")
     return domains
 
+def validate_config(config: configparser.ConfigParser) -> bool:
+    if not config.has_section("Lists"):
+        logger.error(
+            f"{CONFIG_FILE} is missing [Lists], doesn't exist, or has duplicate values."
+        )
+        return False
+    
+    for key, url in config.items("Lists"):
+        if not url.startswith(("http://", "https://")):
+            logger.error(f"Invalid URL for '{key}': {url}")
+            return False
+    
+    return True
 
 def run() -> None:
     TMP_DIR.mkdir(exist_ok=True)
 
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
+
+    if not validate_config(config):
+        return
 
     if not config.has_section("Lists"):
         logger.error(
@@ -129,7 +145,7 @@ def run() -> None:
 
     # Parse all block files concurrently and stream results
     all_domains: set[str] = set()
-    with ThreadPoolExecutor(max_workers= MAX_PARSE_WORKERS) as ex:
+    with ThreadPoolExecutor(max_workers=MAX_PARSE_WORKERS) as ex:
         for domain_set in ex.map(partial(parse_domain_file, tld_set=tld_set), block_files):
             all_domains.update(domain_set)
 
