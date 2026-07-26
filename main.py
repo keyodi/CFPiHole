@@ -143,7 +143,7 @@ def run() -> None:
             all_domains.update(domain_set)
 
     unique_count = len(all_domains)
-    new_list_count = (len(unique_count) + CHUNK_SIZE - 1) // CHUNK_SIZE
+    new_list_count = (unique_count + CHUNK_SIZE - 1) // CHUNK_SIZE
 
     logger.info(f"Unique domains: {CustomFormatter.GREEN}{unique_count}")
     logger.info(f"Lists to create: {CustomFormatter.GREEN}{new_list_count}")
