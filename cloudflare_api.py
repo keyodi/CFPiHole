@@ -115,23 +115,8 @@ def create_firewall_policy_with_domains(
     list_ids: list[str] | None = None,
     tld_list: list[str] | None = None,
 ):
-    """Creates a block policy in the Firewall policy.Handles TLD-based blocking by converting the TLD list into a regex pattern."""
-    if "TLDs" in name_prefix:
-        regex_tld = rf"[.](|{'|'.join(tld_list or [])})$"
-        list_ids = None
-    else:
-        regex_tld = None
-
-    create_gateway_policy(name_prefix, list_ids=list_ids, regex_tld=regex_tld)
-
-def create_firewall_policy_with_domains(
-    name_prefix: str,
-    list_ids: list[str] | None = None,
-    tld_list: list[str] | None = None,
-):
      """Creates a block policy in the Firewall policy.Handles TLD-based blocking by converting the TLD list into a regex pattern."""
     if "TLDs" in name_prefix and tld_list:
-        # More efficient: no empty branch, proper escaping
         escaped_tlds = "|".join(re.escape(tld) for tld in sorted(tld_list))
         regex_tld = rf"\.({escaped_tlds})$"
         list_ids = None
