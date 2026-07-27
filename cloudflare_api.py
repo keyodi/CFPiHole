@@ -11,9 +11,9 @@ CF_API_TOKEN = os.getenv("CF_API_TOKEN")
 CF_IDENTIFIER = os.getenv("CF_IDENTIFIER")
 BASE_URL = f"https://api.cloudflare.com/client/v4/accounts/{CF_IDENTIFIER}/gateway"
 
-# Credentials check (moved outside session creation)
+# Credentials check
 if not all([CF_API_TOKEN, CF_IDENTIFIER]):
-    raise Exception("Missing Cloudflare credentials")
+    raise ValueError("Missing Cloudflare credentials")
 
 # Configure logging
 logger = CustomFormatter.configure_logger("cloudflare")
@@ -37,14 +37,25 @@ def api_call(method, endpoint, json=None):
         raise SystemExit(64)
 
 
-def get_lists(name_prefix: str):
-    """Retrieves lists with a specific name prefix."""
-    data = api_call(session.get, "lists") or []
-    filtered = [l for l in data if l["name"].startswith(name_prefix)]
+def get_items_by_name(endpoint: str, name_prefix: str) -> tuple[list, list]:
+    """Generic helper: retrieves items from endpoint, returns (filtered, all)."""
+    data = api_call(session.get, endpoint) or []
+    filtered = [item for item in data if item["name"].startswith(name_prefix)]
     return filtered, data
 
 
-def create_list(name: str, domains: list[str]):
+def get_lists(name_prefix: str) -> tuple[list, list]:
+    """Retrieves lists with a specific name prefix."""
+    return get_items_by_name("lists", name_prefix)
+
+
+def get_policies(name_prefix: str) -> list:
+    """Retrieves firewall policies with a specific name prefix."""
+    policies, _ = get_items_by_name("rules", name_prefix)
+    return policies
+
+
+def create_list(name: str, domains: list[str]) -> dict:
     """Creates a new list with the specified name and domains."""
     data = api_call(
         session.post,
@@ -53,46 +64,51 @@ def create_list(name: str, domains: list[str]):
             "name": name,
             "description": "Created by script.",
             "type": "DOMAIN",
-            "items": [{"value": d} for d in domains],
+            "items": [{"value": domain} for domain in domains],
         },
     )
     logger.debug(f"Created list {name}")
     return data
 
 
-def delete_list(list_id: str, name: str):
+def delete_list(list_id: str, name: str) -> None:
     """Deletes a list by its ID."""
     api_call(session.delete, f"lists/{list_id}")
     logger.debug(f"Deleted list {name}")
 
 
-def get_firewall_policies(name_prefix: str):
-    """Retrieves firewall policies with a specific name prefix."""
-    data = api_call(session.get, "rules") or []
-    return [l for l in data if l["name"].startswith(name_prefix)]
-
-
-def delete_firewall_policy_by_prefix(name_prefix: str):
+def delete_policy(name_prefix: str) -> None:
     """Deletes a firewall policy by name prefix."""
-    cf_policies = get_firewall_policies(name_prefix)
+    policies = get_policies(name_prefix)
 
-    if not cf_policies:
+    if not policies:
         logger.info(f"No firewall policy {name_prefix} found to delete")
         return
-    elif len(cf_policies) > 1:
-        raise Exception("More than one firewall policy found")
+    elif len(policies) > 1:
+        raise ValueError("More than one firewall policy found")
 
-    api_call(session.delete, f"rules/{cf_policies[0]['id']}")
+    api_call(session.delete, f"rules/{policies[0]['id']}")
     logger.info(f"Deleted policy {name_prefix}")
 
 
-def create_gateway_policy(
+def create_policy(
     name: str,
-    list_ids: list[str] = None,
-    regex_tld: str = None,
-):
-    """Creates a gateway policy with blocking logic based on list IDs or TLD regex."""
-    traffic = " or ".join([f"any(dns.domains[*] in ${l})" for l in list_ids]) if list_ids else f'any(dns.domains[*] matches "{regex_tld}")'
+    list_ids: list[str] | None = None,
+    regex_tld: str | None = None,
+) -> None:
+    """Creates a gateway policy with blocking logic based on list IDs or TLD regex.
+    
+    Args:
+        name: Policy name
+        list_ids: List IDs for domain-based blocking
+        regex_tld: Regex pattern for TLD-based blocking
+    """
+    if list_ids:
+        traffic = " or ".join([f"any(dns.domains[*] in ${list_id})" for list_id in list_ids])
+        block_page_enabled = False
+    else:
+        traffic = f'any(dns.domains[*] matches "{regex_tld}")'
+        block_page_enabled = True
 
     api_call(
         session.post,
@@ -104,49 +120,45 @@ def create_gateway_policy(
             "enabled": True,
             "filters": ["dns"],
             "traffic": traffic,
-            "rule_settings": {"block_page_enabled": bool(regex_tld)},
+            "rule_settings": {"block_page_enabled": block_page_enabled},
         },
     )
     logger.info(f"Created firewall policy: {name}")
 
 
-def create_firewall_policy_with_domains(
+def create_policy_with_tlds(name: str, tld_list: list[str]) -> None:
+    """Creates a TLD-based blocking policy."""
+    escaped_tlds = "|".join(re.escape(tld) for tld in sorted(tld_list))
+    regex_tld = rf"\.({escaped_tlds})$"
+    create_policy(name, regex_tld=regex_tld)
+
+
+def create_lists_and_policy(
     name_prefix: str,
-    list_ids: list[str] | None = None,
-    tld_list: list[str] | None = None,
-):
-    """Creates a block policy in the Firewall policy.Handles TLD-based blocking by converting the TLD list into a regex pattern."""
-    if "TLDs" in name_prefix and tld_list:
-        escaped_tlds = "|".join(re.escape(tld) for tld in sorted(tld_list))
-        regex_tld = rf"\.({escaped_tlds})$"
-        list_ids = None
-    else:
-        regex_tld = None
-
-    create_gateway_policy(name_prefix, list_ids=list_ids, regex_tld=regex_tld)
-
-def delete_lists_and_policy(name_prefix: str, cf_lists: list[dict]):
-    """Deletes the blocking policy and then the lists in Cloudflare."""
-    delete_firewall_policy_by_prefix(name_prefix)
-    logger.info(f"{CustomFormatter.YELLOW}Deleting lists, please wait")
-    for l in cf_lists:
-        delete_list(l["id"], l["name"])
-
-
-def create_lists_and_policy(name_prefix: str, unique_domains: list[str], chunk_size: int = 1000):
+    unique_domains: list[str],
+    chunk_size: int = 1000,
+) -> None:
     """Creates new lists with chunking and creates firewall policy."""
     logger.info(f"{CustomFormatter.YELLOW}Creating lists, please wait")
     list_ids = []
 
     for i, chunk in enumerate(chunk_list(unique_domains, chunk_size), 1):
         list_name = f"{name_prefix} {i}"
-        _list = create_list(list_name, chunk)
-        list_ids.append(_list["id"])
+        created_list = create_list(list_name, chunk)
+        list_ids.append(created_list["id"])
 
-    create_firewall_policy_with_domains(name_prefix, list_ids=list_ids)
+    create_policy(name_prefix, list_ids=list_ids)
 
 
-def chunk_list(_list: list[str], chunk_size: int):
-    """Yield successive chunk_size-sized chunks from _list."""
-    for i in range(0, len(_list), chunk_size):
-        yield _list[i : i + chunk_size]
+def delete_lists_and_policy(name_prefix: str, lists: list[dict]) -> None:
+    """Deletes the blocking policy and then the lists in Cloudflare."""
+    delete_policy(name_prefix)
+    logger.info(f"{CustomFormatter.YELLOW}Deleting lists, please wait")
+    for list_item in lists:
+        delete_list(list_item["id"], list_item["name"])
+
+
+def chunk_list(items: list[str], chunk_size: int):
+    """Yield successive chunk_size-sized chunks from items."""
+    for i in range(0, len(items), chunk_size):
+        yield items[i : i + chunk_size]

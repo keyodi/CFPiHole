@@ -46,7 +46,7 @@ def read_lines(path: Path) -> list[str]:
 def parse_tld_file(name: str) -> set[str]:
     """Strip adblock syntax (||tld^) and return bare TLD strings."""
     tlds = {
-        line.removeprefix("||").removesuffix("^") for line in read_lines(TMP_DIR / name)
+        line.removeprefix("|").removesuffix("^") for line in read_lines(TMP_DIR / name)
     }
     logger.info(f"TLDs loaded: {CustomFormatter.GREEN}{len(tlds)}")
     return tlds
@@ -83,6 +83,7 @@ def parse_domain_file(name: str, tld_set: set[str]) -> set[str]:
     logger.debug(f"{name} — domains: {CustomFormatter.YELLOW}{len(domains)}")
     return domains
 
+
 def validate_config(config: configparser.ConfigParser) -> bool:
     if not config.has_section("Lists"):
         logger.error(
@@ -96,6 +97,7 @@ def validate_config(config: configparser.ConfigParser) -> bool:
             return False
     
     return True
+
 
 def run() -> None:
     TMP_DIR.mkdir(exist_ok=True)
@@ -158,9 +160,9 @@ def run() -> None:
         )
         return
 
-    cloudflare_api.delete_firewall_policy_by_prefix(NAME_PREFIX_TLD)
+    cloudflare_api.delete_policy(NAME_PREFIX_TLD)
     if tld_set:
-        cloudflare_api.create_firewall_policy_with_domains(NAME_PREFIX_TLD, tld_list=sorted(tld_set))
+        cloudflare_api.create_policy_with_tlds(NAME_PREFIX_TLD, sorted(tld_set))
 
     cloudflare_api.delete_lists_and_policy(NAME_PREFIX, cf_lists)
     cloudflare_api.create_lists_and_policy(NAME_PREFIX, sorted(all_domains))
