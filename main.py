@@ -46,7 +46,7 @@ def read_lines(path: Path) -> list[str]:
 def parse_tld_file(name: str) -> set[str]:
     """Strip adblock syntax (||tld^) and return bare TLD strings."""
     tlds = {
-        line.removeprefix("|").removesuffix("^") for line in read_lines(TMP_DIR / name)
+        line.removeprefix("||").removesuffix("^") for line in read_lines(TMP_DIR / name)
     }
     logger.info(f"TLDs loaded: {CustomFormatter.GREEN}{len(tlds)}")
     return tlds
