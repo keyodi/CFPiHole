@@ -96,13 +96,7 @@ def create_policy(
     list_ids: list[str] | None = None,
     regex_tld: str | None = None,
 ) -> None:
-    """Creates a gateway policy with blocking logic based on list IDs or TLD regex.
-    
-    Args:
-        name: Policy name
-        list_ids: List IDs for domain-based blocking
-        regex_tld: Regex pattern for TLD-based blocking
-    """
+    """Creates a gateway policy with blocking logic based on list IDs or TLD regex."""
     if list_ids:
         traffic = " or ".join([f"any(dns.domains[*] in ${list_id})" for list_id in list_ids])
         block_page_enabled = False
