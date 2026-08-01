@@ -1,8 +1,3 @@
-"""CFPiHole — Colored logger utilities.
-
-This module provides a small logging Formatter that adds ANSI color codes to
-console output and a helper to configure named loggers consistently.
-"""
 from __future__ import annotations
 
 import logging
@@ -10,13 +5,7 @@ from typing import Optional
 
 
 class CustomFormatter(logging.Formatter):
-    """A logging formatter that applies ANSI color codes to log messages based on
-    their severity level.
-
-    The class exposes a few color constants that other modules can reference
-    when emitting colored informational messages.
-    """
-
+    """A logging formatter that applies ANSI color codes to log messages."""
     COLORS = {
         logging.DEBUG: "\x1b[38;20m",    # Grey
         logging.INFO: "\x1b[37;20m",     # White
@@ -32,24 +21,15 @@ class CustomFormatter(logging.Formatter):
         super().__init__(fmt)
 
     def format(self, record: logging.LogRecord) -> str:
-        """Format a LogRecord and wrap the message in the ANSI color sequence.
-
-        The method preserves the underlying logging machinery while only altering
-        the textual message that is displayed.
-        """
+        """Format a LogRecord and wrap the message in the ANSI color sequence. """
         color = self.COLORS.get(record.levelno, self.RESET)
-        # Make a shallow copy so we don't permanently mutate the record.
         record_copy = logging.makeLogRecord(record.__dict__)
         record_copy.msg = f"{color}{record_copy.msg}{self.RESET}"
         return super().format(record_copy)
 
     @staticmethod
     def configure_logger(name: str, level: int = logging.INFO) -> logging.Logger:
-        """Create and return a named logger with a colored StreamHandler attached.
-
-        If a logger with handlers already exists we return it unchanged. This
-        keeps behavior predictable when this helper is called multiple times.
-        """
+        """Create and return a named logger with a colored StreamHandler attached."""
         logger = logging.getLogger(name)
 
         if logger.hasHandlers():
