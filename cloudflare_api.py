@@ -122,7 +122,12 @@ def create_policy(
 
 def create_policy_with_tlds(name: str, tld_list: list[str]) -> None:
     """Creates a TLD-based blocking policy."""
-    escaped_tlds = "|".join(re.escape(tld) for tld in sorted(tld_list))
+    # Use re.escape to safely escape regex meta-characters, but Cloudflare UI
+    # displays escaped hyphens (\-) which looks wrong for names like xn--... .
+    # To keep correct regex semantics while avoiding escaped hyphens in the
+    # displayed pattern, unescape only the hyphen escape sequence produced by
+    # re.escape.
+    escaped_tlds = "|".join(re.escape(tld).replace('\\-', '-') for tld in sorted(tld_list))
     regex_tld = rf"\.({escaped_tlds})$"
     create_policy(name, regex_tld=regex_tld)
 
