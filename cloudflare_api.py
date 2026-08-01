@@ -121,7 +121,7 @@ def create_policy(
 
 def create_policy_with_tlds(name: str, tld_list: list[str]) -> None:
     """Creates a TLD-based blocking policy."""
-    unique_tlds = {tld for tld in sorted(tld_list) or []}
+    unique_tlds = sorted({tld for tld in tld_list or []})
     regex_tld = rf"[.](|{'|'.join(unique_tlds)})$"
     create_policy(name, regex_tld=regex_tld)
 
