@@ -35,7 +35,7 @@ def read_lines(path: Path) -> list[str]:
         logger.warning(f"Missing {path}, skipping")
         return []
 
-    raw = path.read_bytes().decode("utf-8", errors="ignore")
+    raw = path.read_text(encoding="utf-8", errors="ignore")
     return [
         s
         for line in raw.splitlines()
@@ -112,7 +112,19 @@ def run() -> None:
     tld_files = [n for n in list_names if "tld" in n.lower()]
     block_files = [n for n in list_names if "tld" not in n.lower()]
 
-    cf_lists, total_cf_lists = cloudflare_api.get_lists(NAME_PREFIX)
+    # Build Cloudflare API client from environment
+    try:
+        cf = cloudflare_api.from_env()
+    except Exception as exc:
+        logger.error("Could not initialize Cloudflare client: %s", exc)
+        return
+
+    try:
+        cf_lists, total_cf_lists = cf.get_lists(NAME_PREFIX)
+    except Exception as exc:
+        logger.error("Error fetching lists from Cloudflare: %s", exc)
+        return
+
     extra_lists = len(total_cf_lists) - len(cf_lists)
     logger.debug(
         f"CFPiHole lists in Cloudflare: {CustomFormatter.YELLOW}{len(cf_lists)}"
@@ -160,12 +172,17 @@ def run() -> None:
         )
         return
 
-    cloudflare_api.delete_policy(NAME_PREFIX_TLD)
-    if tld_set:
-        cloudflare_api.create_policy_with_tlds(NAME_PREFIX_TLD, sorted(tld_set))
+    # Update Cloudflare with TLDs and lists
+    try:
+        cf.delete_policy(NAME_PREFIX_TLD)
+        if tld_set:
+            cf.create_policy_with_tlds(NAME_PREFIX_TLD, sorted(tld_set))
 
-    cloudflare_api.delete_lists_and_policy(NAME_PREFIX, cf_lists)
-    cloudflare_api.create_lists_and_policy(NAME_PREFIX, sorted(all_domains))
+        cf.delete_lists_and_policy(NAME_PREFIX, cf_lists)
+        cf.create_lists_and_policy(NAME_PREFIX, sorted(all_domains))
+    except Exception as exc:
+        logger.error("Error updating Cloudflare: %s", exc)
+        return
 
     logger.info(f"{CustomFormatter.GREEN}Done")
 
