@@ -28,7 +28,6 @@ def download_file(session: requests.Session, url: str, name: str) -> None:
     except requests.RequestException as e:
         logger.error(f"Error downloading {url}: {e}")
 
-
 def read_lines(path: Path) -> list[str]:
     """Return non-empty, non-comment lines from a file."""
     if not path.exists():
@@ -42,7 +41,6 @@ def read_lines(path: Path) -> list[str]:
         if (s := line.strip()) and s[0] not in COMMENT_CHARS
     ]
 
-
 def parse_tld_file(name: str) -> set[str]:
     """Strip adblock syntax (||tld^) and return bare TLD strings."""
     tlds = {
@@ -50,7 +48,6 @@ def parse_tld_file(name: str) -> set[str]:
     }
     logger.info(f"TLDs loaded: {CustomFormatter.GREEN}{len(tlds)}")
     return tlds
-
 
 def is_tld_blocked(domain: str, tld_set: set[str]) -> bool:
     parts = domain.rsplit(".", 2)
@@ -60,7 +57,6 @@ def is_tld_blocked(domain: str, tld_set: set[str]) -> bool:
         if len(parts) >= 3 and f"{parts[-2]}.{parts[-1]}" in tld_set:
             return True
     return False
-
 
 def parse_domain_file(name: str, tld_set: set[str]) -> set[str]:
     lines = read_lines(TMP_DIR / name)
@@ -82,7 +78,6 @@ def parse_domain_file(name: str, tld_set: set[str]) -> set[str]:
 
     logger.debug(f"{name} — domains: {CustomFormatter.YELLOW}{len(domains)}")
     return domains
-
 
 def validate_config(config: configparser.ConfigParser) -> bool:
     if not config.has_section("Lists"):
