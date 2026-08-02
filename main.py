@@ -4,11 +4,12 @@ This script downloads blocklists, parses domains and TLDs, and updates
 Cloudflare lists and policies accordingly.
 """
 
+from __future__ import annotations
+
 import configparser
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from pathlib import Path
-from typing import List, Set
 
 import requests
 
@@ -42,7 +43,7 @@ def download_file(session: requests.Session, url: str, name: str) -> None:
         logger.error(f"Error downloading {url}: {exc}")
 
 
-def read_lines(path: Path) -> List[str]:
+def read_lines(path: Path) -> list[str]:
     """Return non-empty, non-comment lines from a file.
 
     Lines are stripped of surrounding whitespace and comment lines (starting
@@ -60,7 +61,7 @@ def read_lines(path: Path) -> List[str]:
     ]
 
 
-def parse_tld_file(name: str) -> Set[str]:
+def parse_tld_file(name: str) -> set[str]:
     """Strip adblock syntax (e.g. "||tld^") and return bare TLD strings."""
     tlds = {
         line.removeprefix("||").removesuffix("^")
@@ -70,7 +71,7 @@ def parse_tld_file(name: str) -> Set[str]:
     return tlds
 
 
-def is_tld_blocked(domain: str, tld_set: Set[str]) -> bool:
+def is_tld_blocked(domain: str, tld_set: set[str]) -> bool:
     """Return True if the domain ends with a TLD in tld_set.
 
     The function checks both single-label TLDs (e.g. 'com') and two-label
@@ -85,7 +86,7 @@ def is_tld_blocked(domain: str, tld_set: Set[str]) -> bool:
     return False
 
 
-def parse_domain_file(name: str, tld_set: Set[str]) -> Set[str]:
+def parse_domain_file(name: str, tld_set: set[str]) -> set[str]:
     """Parse a blocklist file and return a set of domains.
 
     Supports hosts-style files (starting with '127.0.0.1 ' or '0.0.0.0 ')
@@ -97,7 +98,7 @@ def parse_domain_file(name: str, tld_set: Set[str]) -> Set[str]:
         return set()
 
     is_hosts = lines[0].startswith(("127.0.0.1 ", "0.0.0.0 "))
-    domains: Set[str] = set()
+    domains: set[str] = set()
 
     for line in lines:
         # partition avoids allocating a full split list for every line
@@ -176,10 +177,10 @@ def run() -> None:
                 future.result()
 
     # Parse TLDs if available
-    tld_set: Set[str] = parse_tld_file(tld_files[0]) if tld_files else set()
+    tld_set: set[str] = parse_tld_file(tld_files[0]) if tld_files else set()
 
     # Parse all block files concurrently and stream results
-    all_domains: Set[str] = set()
+    all_domains: set[str] = set()
     with ThreadPoolExecutor(max_workers=max_parse_workers) as ex:
         for domain_set in ex.map(partial(parse_domain_file, tld_set=tld_set), block_files):
             all_domains.update(domain_set)
