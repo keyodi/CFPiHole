@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from pathlib import Path
@@ -72,7 +74,7 @@ def parse_domain_file(name: str, tld_set: set[str]) -> set[str]:
         return set()
 
     is_hosts = lines[0].startswith(("127.0.0.1 ", "0.0.0.0 "))
-    domains: Set[str] = set()
+    domains: set[str] = set()
 
     for line in lines:
         # partition avoids allocating a full split list for every line
