@@ -108,17 +108,18 @@ def validate_config(config: configparser.ConfigParser) -> bool:
 
 def run() -> None:
     """Main entry point: download, parse, and sync lists with Cloudflare."""
-    TMP_DIR.mkdir(exist_ok=True)
-
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
 
     if not validate_config(config):
         return
 
+    TMP_DIR.mkdir(exist_ok=True)
+
     list_names = config.options("Lists")
-    tld_files = [n for n in list_names if "tld" in n.lower()]
-    block_files = [n for n in list_names if "tld" not in n.lower()]
+    tld_files, block_files = [], []
+    for n in list_names:
+        (tld_files if "tld" in n.lower() else block_files).append(n)
 
     cf_lists, total_cf_lists = cloudflare_api.get_lists(NAME_PREFIX)
     extra_lists = len(total_cf_lists) - len(cf_lists)
@@ -152,7 +153,7 @@ def run() -> None:
             all_domains.update(domain_set)
 
     unique_count = len(all_domains)
-    new_list_count = (unique_count + CHUNK_SIZE - 1) // CHUNK_SIZE
+    new_list_count = (unique_count - 1) // CHUNK_SIZE + 1
 
     logger.info("Unique domains: %s%s", CustomFormatter.GREEN, unique_count)
     logger.info("Lists to create: %s%s", CustomFormatter.GREEN, new_list_count)
