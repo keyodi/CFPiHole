@@ -37,11 +37,12 @@ def download_file(session: requests.Session, url: str, name: str) -> None:
 
 def read_lines(path: Path) -> list[str]:
     """Return non-empty, non-comment lines from a file."""
-    if not path.exists():
+    try:
+        raw = path.read_bytes().decode("utf-8", errors="ignore")
+    except FileNotFoundError:
         logger.warning("Missing %s, skipping", path)
         return []
 
-    raw = path.read_bytes().decode("utf-8", errors="ignore")
     return [
         s
         for line in raw.splitlines()
@@ -129,14 +130,15 @@ def run() -> None:
     max_download_workers = min(len(list_names), 32)
     max_parse_workers = min(len(block_files), 16)
 
-    with requests.Session() as session:
-        with ThreadPoolExecutor(max_workers=max_download_workers) as ex:
-            futures = [
-                ex.submit(download_file, session, config["Lists"][n], n)
-                for n in list_names
-            ]
-            for future in futures:
-                future.result()
+    # Reuse session across all download operations
+    session = requests.Session()
+    with ThreadPoolExecutor(max_workers=max_download_workers) as ex:
+        futures = [
+            ex.submit(download_file, session, config["Lists"][n], n)
+            for n in list_names
+        ]
+        for future in futures:
+            future.result()
 
     # Parse TLDs if available
     tld_set: set[str] = parse_tld_file(tld_files[0]) if tld_files else set()
