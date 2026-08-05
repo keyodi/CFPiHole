@@ -24,10 +24,11 @@ class CustomFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         """Format a LogRecord and wrap the message in the ANSI color sequence."""
         color = self.COLORS.get(record.levelno, self.RESET)
-        # Copy the record dict to avoid mutating the original record.
-        record_copy = logging.makeLogRecord(record.__dict__.copy())
-        record_copy.msg = f"{color}{record_copy.msg}{self.RESET}"
-        return super().format(record_copy)
+        original_msg = record.msg
+        record.msg = f"{color}{record.msg}{self.RESET}"
+        formatted = super().format(record)
+        record.msg = original_msg
+        return formatted
 
     @staticmethod
     def configure_logger(name: str, level: int = logging.INFO) -> logging.Logger:
