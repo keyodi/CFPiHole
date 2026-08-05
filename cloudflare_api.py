@@ -109,8 +109,7 @@ def create_policy(name: str, list_ids: list[str] | None = None, regex_tld: str |
 
 def create_policy_with_tlds(name: str, tld_list: list[str]) -> None:
     """Create a TLD-based blocking policy from a list of TLDs."""
-    unique_tlds = sorted({tld for tld in tld_list or []})
-    regex_tld = rf"[.](|{'|'.join(unique_tlds)})$"
+    regex_tld = rf"[.](|{'|'.join(tld_list)})$"
     create_policy(name, regex_tld=regex_tld)
 
 def create_lists_and_policy(name_prefix: str, unique_domains: list[str], chunk_size: int = 1000) -> None:
