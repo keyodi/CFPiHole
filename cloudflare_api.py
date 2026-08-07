@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Tuple
+from typing import Any
 import os
 
 import requests
@@ -41,13 +41,13 @@ def api_call(method: Any, endpoint: str, json: dict | None = None) -> Any:
         )
         raise SystemExit(64)
 
-def get_items_by_name(endpoint: str, name_prefix: str) -> Tuple[list[dict], list[dict]]:
+def get_items_by_name(endpoint: str, name_prefix: str) -> tuple[list[dict], list[dict]]:
     """Retrieve items from an endpoint and return (filtered, all_items)."""
     data = api_call(session.get, endpoint) or []
     filtered = [item for item in data if item.get("name", "").startswith(name_prefix)]
     return filtered, data
 
-def get_lists(name_prefix: str) -> Tuple[list[dict], list[dict]]:
+def get_lists(name_prefix: str) -> tuple[list[dict], list[dict]]:
     """Retrieve lists matching the given name prefix."""
     return get_items_by_name("lists", name_prefix)
 
