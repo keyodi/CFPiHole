@@ -6,6 +6,7 @@ from io import BytesIO
 import configparser
 import logging
 import requests
+from requests.adapters import HTTPAdapter
 
 import cloudflare_api
 from logger_config import CustomFormatter
@@ -132,6 +133,7 @@ def run() -> None:
 
     # Reuse session across all download operations
     session = requests.Session()
+    session.mount("https://", HTTPAdapter(pool_maxsize=max_download_workers, pool_connections=max_download_workers))
     with ThreadPoolExecutor(max_workers=max_download_workers) as ex:
         futures = [
             ex.submit(download_file, session, config["Lists"][n], n)
