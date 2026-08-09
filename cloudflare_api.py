@@ -4,6 +4,7 @@ from typing import Any
 import os
 
 import requests
+from requests.adapters import HTTPAdapter
 from dotenv import load_dotenv
 
 from logger_config import CustomFormatter
@@ -24,6 +25,7 @@ logger = CustomFormatter.configure_logger("cloudflare")
 
 session = requests.Session()
 session.headers.update({"Authorization": f"Bearer {CF_API_TOKEN}"})
+session.mount("https://", HTTPAdapter(pool_maxsize=20, pool_connections=20))
 
 
 def api_call(method: Any, endpoint: str, json: dict | None = None) -> Any:
