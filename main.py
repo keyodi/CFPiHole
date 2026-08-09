@@ -127,8 +127,8 @@ def run() -> None:
 
     logger.info("Starting concurrent downloads...")
 
-    max_download_workers = min(len(list_names), 32)
-    max_parse_workers = min(len(block_files), 16)
+    max_download_workers = max(1, min(len(list_names), 32))
+    max_parse_workers = max(1, min(len(block_files), 16))
 
     # Reuse session across all download operations
     session = requests.Session()
