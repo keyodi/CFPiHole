@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
-from pathlib import Path
+from io import BytesIO
 import configparser
 import logging
 import requests
@@ -15,7 +15,6 @@ from logger_config import CustomFormatter
 NAME_PREFIX = "[CFPihole] Block Ads"
 NAME_PREFIX_TLD = "[CFPihole] Block TLDs"
 CONFIG_FILE = "config.ini"
-TMP_DIR = Path("./tmp")
 TIMEOUT = 15
 MAX_LISTS = 300
 CHUNK_SIZE = 1000
@@ -23,26 +22,28 @@ COMMENT_CHARS = frozenset("!#;/[")
 
 logger = CustomFormatter.configure_logger("main")
 
+# Global cache for downloaded file contents (name -> bytes)
+file_cache: dict[str, bytes] = {}
+
 
 def download_file(session: requests.Session, url: str, name: str) -> None:
-    """Download a file to the temporary directory."""
+    """Download a file and store in memory."""
     try:
         response = session.get(url, allow_redirects=True, timeout=TIMEOUT)
         response.raise_for_status()
-        (TMP_DIR / name).write_bytes(response.content)
+        file_cache[name] = response.content
         size_kb = len(response.content) / 1024
         logger.info(f"Downloaded {url} ({size_kb:.0f} KB)")
     except requests.RequestException as exc:
         logger.error("Error downloading %s: %s", url, exc)
 
-def read_lines(path: Path) -> list[str]:
-    """Return non-empty, non-comment lines from a file."""
-    try:
-        raw = path.read_bytes().decode("utf-8", errors="ignore")
-    except FileNotFoundError:
-        logger.warning("Missing %s, skipping", path)
+def read_lines(name: str) -> list[str]:
+    """Return non-empty, non-comment lines from cached file."""
+    if name not in file_cache:
+        logger.warning("Missing %s, skipping", name)
         return []
 
+    raw = file_cache[name].decode("utf-8", errors="ignore")
     return [
         s
         for line in raw.splitlines()
@@ -53,7 +54,7 @@ def parse_tld_file(name: str) -> set[str]:
     """Strip adblock syntax (||tld^) and return bare TLD strings."""
     tlds = {
         line.removeprefix("||").removesuffix("^")
-        for line in read_lines(TMP_DIR / name)
+        for line in read_lines(name)
     }
     logger.info("TLDs loaded: %s%s", CustomFormatter.GREEN, len(tlds))
     return tlds
@@ -70,7 +71,7 @@ def is_tld_blocked(domain: str, tld_set: set[str]) -> bool:
 
 def parse_domain_file(name: str, tld_set: set[str]) -> set[str]:
     """Parse a downloaded blocklist and return a set of domains to block."""
-    lines = read_lines(TMP_DIR / name)
+    lines = read_lines(name)
     if not lines:
         return set()
 
@@ -113,8 +114,6 @@ def run() -> None:
 
     if not validate_config(config):
         return
-
-    TMP_DIR.mkdir(exist_ok=True)
 
     list_names = config.options("Lists")
     tld_files, block_files = [], []
