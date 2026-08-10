@@ -4,9 +4,7 @@ from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 from functools import partial
 from io import BytesIO
 import configparser
-import logging
 import os
-import time
 from collections.abc import Iterator
 
 import requests
@@ -149,7 +147,6 @@ def chunk_list(items: list[str], chunk_size: int) -> Iterator[list[str]]:
 
 def run() -> None:
     """Main entry point: download, parse, and sync lists with Cloudflare."""
-    start_time = time.time()
     
     if not os.path.exists(CONFIG_FILE):
         logger.error("Config file not found: %s", CONFIG_FILE)
@@ -189,8 +186,7 @@ def run() -> None:
             pool_connections=num_download_workers
         )
     )
-    
-    download_start = time.time()
+
     with ThreadPoolExecutor(max_workers=num_download_workers) as ex:
         futures = [
             ex.submit(download_file, session, config["Lists"][n], n)
@@ -198,14 +194,10 @@ def run() -> None:
         ]
         for future in futures:
             future.result()
-    
-    download_elapsed = time.time() - download_start
-    logger.info("Downloads completed in %.2fs", download_elapsed)
 
     # Parse TLDs if available
     tld_set: set[str] = parse_tld_file(tld_files[0]) if tld_files else set()
 
-    parse_start = time.time()
     all_domains: set[str] = set()
     with ProcessPoolExecutor(max_workers=num_parse_workers) as ex:
         futures = [
@@ -214,9 +206,6 @@ def run() -> None:
         ]
         for future in futures:
             all_domains.update(future.result())
-    
-    parse_elapsed = time.time() - parse_start
-    logger.info("Parsing completed in %.2fs", parse_elapsed)
 
     unique_count = len(all_domains)
     new_list_count = (unique_count - 1) // CHUNK_SIZE + 1
@@ -241,9 +230,6 @@ def run() -> None:
 
     cloudflare_api.delete_lists_and_policy(NAME_PREFIX, cf_lists)
     cloudflare_api.create_lists_and_policy(NAME_PREFIX, sorted(all_domains))
-
-    total_elapsed = time.time() - start_time
-    logger.info("%sSync completed in %.2fs", CustomFormatter.GREEN, total_elapsed)
 
 
 if __name__ == "__main__":
