@@ -110,7 +110,7 @@ def validate_config(config: configparser.ConfigParser) -> bool:
 
 def run() -> None:
     """Main entry point: download, parse, and sync lists with Cloudflare."""
-    config = configparser.ConfigParser()
+    config = configparser.ConfigParser(interpolation=None)
     config.read(CONFIG_FILE)
 
     if not validate_config(config):
