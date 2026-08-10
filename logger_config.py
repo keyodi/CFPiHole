@@ -5,7 +5,7 @@ from typing import Dict, Optional
 
 
 class CustomFormatter(logging.Formatter):
-    """A logging formatter that applies ANSI color codes to log messages."""
+    """Apply ANSI color codes to log messages based on log level."""
 
     COLORS: Dict[int, str] = {
         logging.DEBUG: "\x1b[38;20m",    # Grey
@@ -22,7 +22,7 @@ class CustomFormatter(logging.Formatter):
         super().__init__(fmt)
 
     def format(self, record: logging.LogRecord) -> str:
-        """Format a LogRecord and wrap the message in the ANSI color sequence."""
+        """Format a LogRecord with ANSI color codes."""
         color = self.COLORS.get(record.levelno, self.RESET)
         original_msg = record.msg
         record.msg = f"{color}{record.msg}{self.RESET}"
@@ -32,7 +32,7 @@ class CustomFormatter(logging.Formatter):
 
     @staticmethod
     def configure_logger(name: str, level: int = logging.INFO) -> logging.Logger:
-        """Create and return a named logger with a colored StreamHandler attached."""
+        """Create and return a named logger with a colored StreamHandler."""
         logger = logging.getLogger(name)
 
         # Avoid adding duplicate handlers to the same logger.
