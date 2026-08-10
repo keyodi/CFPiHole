@@ -24,12 +24,27 @@ jobs:
         python-version: "3.14"
         cache: 'pip'
 
-    - name: Install dependencies
+    - name: Cache Poetry and pip
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/pypoetry
+          ~/.cache/pip
+        key: ${{ runner.os }}-poetry-${{ hashFiles('**/poetry.lock', '**/pyproject.toml') }}
+        restore-keys: |
+          ${{ runner.os }}-poetry-
+
+    - name: Install Poetry
       run: |
-        # Ensure pip is up to date
-        python -m pip install --upgrade pip
-        # Install dependencies; pip will use the cache set up by actions/setup-python
-        pip install -r requirements.txt
+        curl -sSL https://install.python-poetry.org | python3 -
+    - name: Configure Poetry on PATH
+      run: echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+    - name: Install dependencies with Poetry
+      run: |
+        poetry config virtualenvs.create false
+
+        poetry install --no-interaction --no-ansi --without dev
 
     - name: Run update (with retries)
       env:
@@ -64,4 +79,3 @@ jobs:
             exit 1
           fi
         done
-
