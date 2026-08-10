@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import logging
-from typing import Dict, Optional
+from typing import Optional
 
 
 class CustomFormatter(logging.Formatter):
     """Apply ANSI color codes to log messages based on log level."""
 
-    COLORS: Dict[int, str] = {
+    COLORS: dict[int, str] = {
         logging.DEBUG: "\x1b[38;20m",    # Grey
         logging.INFO: "\x1b[37;20m",     # White
         logging.WARNING: "\x1b[33;20m",  # Yellow
