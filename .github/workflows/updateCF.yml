@@ -67,7 +67,7 @@ jobs:
           echo "Attempt $attempt of $max_attempts: running update..."
 
           set +e
-          python main.py
+          poetry run python main.py
           exit_code=$?
           set -e
 
