@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
-from io import BytesIO
 import configparser
 import os
 from collections.abc import Iterator
