@@ -3,6 +3,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 import configparser
 import os
+import threading
 from collections.abc import Iterator
 
 import requests
@@ -32,6 +33,7 @@ logger = CustomFormatter.configure_logger("main")
 
 # Global cache for downloaded file contents (name -> bytes)
 file_cache: dict[str, bytes] = {}
+_cache_lock = threading.Lock()
 
 
 def download_file(session: requests.Session, url: str, name: str) -> None:
@@ -39,9 +41,10 @@ def download_file(session: requests.Session, url: str, name: str) -> None:
     try:
         response = session.get(url, allow_redirects=True, timeout=TIMEOUT)
         response.raise_for_status()
-        file_cache[name] = response.content
+        with _cache_lock:
+            file_cache[name] = response.content
         size_kb = len(response.content) / 1024
-        logger.info(f"Downloaded {url} ({size_kb:.0f} KB)")
+        logger.info("Downloaded %s (%.0f KB)", url, size_kb)
     except requests.exceptions.Timeout:
         logger.error("Timeout downloading %s after %ds", url, TIMEOUT)
     except requests.exceptions.ConnectionError as exc:
@@ -68,11 +71,7 @@ def read_lines(name: str) -> list[str]:
 
 def parse_tld_file(name: str) -> set[str]:
     """Strip adblock syntax (||tld^) and return bare TLD strings."""
-    tlds = {
-        line.removeprefix("||")
-        .removesuffix("^")
-        for line in read_lines(name)
-    }
+    tlds = {line.removeprefix("||").removesuffix("^") for line in read_lines(name)}
     logger.info("TLDs loaded: %s%s", CustomFormatter.GREEN, len(tlds))
     return tlds
 
@@ -88,10 +87,10 @@ def is_tld_blocked(domain: str, tld_set: set[str]) -> bool:
     return False
 
 
-def parse_domain_file(name: str, content: bytes | None, tld_set: set[str]) -> set[str]:
+def parse_domain_file(source_name: str, content: bytes | None, tld_set: set[str]) -> set[str]:
     """Parse a downloaded blocklist and return a set of domains to block."""
     if not content:
-        logger.warning("Missing %s, skipping", name)
+        logger.warning("Missing %s, skipping", source_name)
         return set()
 
     raw = content.decode("utf-8", errors="ignore")
@@ -116,7 +115,7 @@ def parse_domain_file(name: str, content: bytes | None, tld_set: set[str]) -> se
 
     domains = {d for line in lines if (d := _extract(line)) is not None}
 
-    logger.debug("%s — domains: %s%s", name, CustomFormatter.YELLOW, len(domains))
+    logger.debug("%s — domains: %s%s", source_name, CustomFormatter.YELLOW, len(domains))
     return domains
 
 
@@ -145,11 +144,11 @@ def chunk_list(items: list[str], chunk_size: int) -> Iterator[list[str]]:
 
 def run() -> None:
     """Main entry point: download, parse, and sync lists with Cloudflare."""
-    
+
     if not os.path.exists(CONFIG_FILE):
         logger.error("Config file not found: %s", CONFIG_FILE)
         raise SystemExit(1)
-    
+
     config = configparser.ConfigParser(interpolation=None)
     try:
         config.read(CONFIG_FILE)
@@ -175,7 +174,6 @@ def run() -> None:
     num_download_workers = max(1, min(len(list_names), MAX_DOWNLOAD_WORKERS))
     num_parse_workers = max(1, min(len(block_files), MAX_PARSE_WORKERS))
 
-    # Reuse session across all download operations
     session = requests.Session()
     session.mount(
         "https://",
@@ -193,7 +191,7 @@ def run() -> None:
         for future in futures:
             future.result()
 
-    # Parse TLDs if available
+    # Parse TLDs if available and silently ignoring extras beyond index 0
     tld_set: set[str] = parse_tld_file(tld_files[0]) if tld_files else set()
 
     all_domains: set[str] = set()
@@ -211,7 +209,8 @@ def run() -> None:
     logger.info("Unique domains: %s%s", CustomFormatter.GREEN, unique_count)
     logger.info("Lists to create: %s%s", CustomFormatter.GREEN, new_list_count)
 
-    if unique_count == sum(l["count"] for l in cf_lists):
+    cf_total = sum(lst.get("count", 0) for lst in cf_lists)
+    if unique_count == cf_total:
         logger.warning("Lists are the same size, stopping")
         return
 
