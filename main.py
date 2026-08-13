@@ -70,12 +70,12 @@ def read_lines(name: str) -> list[str]:
 
 
 def parse_tld_file(name: str) -> set[str]:
-    """Skip comment lines, strip non-alphanumeric/non-hyphen characters, returning bare TLD strings."""
+    """Skip comment lines, strip characters other than alphanumerics, hyphens, and dots."""
     tlds = {
         cleaned
         for line in read_lines(name)
         if not line.strip().startswith(("#", "!", "//"))
-        and (cleaned := "".join(ch for ch in line if ch.isalnum() or ch == "-"))
+        and (cleaned := "".join(ch for ch in line if ch.isalnum() or ch in "-.").strip("."))
     }
     logger.info("TLDs loaded: %s%s", CustomFormatter.GREEN, len(tlds))
     return tlds
