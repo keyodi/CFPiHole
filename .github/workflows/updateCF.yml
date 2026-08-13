@@ -36,7 +36,17 @@ jobs:
           ${{ runner.os }}-poetry-3.14-
           ${{ runner.os }}-poetry-
 
+    - name: Cache Poetry installation
+      id: cache-poetry
+      uses: actions/cache@v5
+      with:
+        path: |
+          ~/.local/share/pypoetry
+          ~/.local/bin/poetry
+        key: ${{ runner.os }}-poetry-install-3.14
+
     - name: Install Poetry
+      if: steps.cache-poetry.outputs.cache-hit != 'true'
       run: |
         curl -sSL https://install.python-poetry.org | python3 -
     - name: Configure Poetry on PATH
