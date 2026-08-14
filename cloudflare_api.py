@@ -114,7 +114,7 @@ def create_policy_with_tlds(name: str, tld_list: list[str]) -> None:
     regex_tld = rf"[.](|{'|'.join(tld_list)})$"
     create_policy(name, regex_tld=regex_tld)
 
-def create_lists_and_policy(name_prefix: str, unique_domains: list[str], chunk_size: int = 1000) -> None:
+def create_lists_and_policy(name_prefix: str, unique_domains: list[str], chunk_size: int) -> None:
     """Chunk the domains into lists, create them in Cloudflare, then add a policy referencing the lists."""
     logger.info(f"{CustomFormatter.YELLOW}Creating lists, please wait")
     list_ids: list[str] = []
