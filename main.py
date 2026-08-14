@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 import configparser
 import os
-import threading
-from collections.abc import Iterator
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -25,7 +23,6 @@ CHUNK_SIZE = 1000
 
 # Concurrency limits based on system capabilities and API rate limits
 MAX_DOWNLOAD_WORKERS = 32
-MAX_PARSE_WORKERS = 16
 
 COMMENT_CHARS = frozenset("!#;/[")
 
@@ -33,7 +30,6 @@ logger = CustomFormatter.configure_logger("main")
 
 # Global cache for downloaded file contents (name -> bytes)
 file_cache: dict[str, bytes] = {}
-_cache_lock = threading.Lock()
 
 
 def download_file(session: requests.Session, url: str, name: str) -> None:
@@ -41,8 +37,7 @@ def download_file(session: requests.Session, url: str, name: str) -> None:
     try:
         response = session.get(url, allow_redirects=True, timeout=TIMEOUT)
         response.raise_for_status()
-        with _cache_lock:
-            file_cache[name] = response.content
+        file_cache[name] = response.content
         size_kb = len(response.content) / 1024
         logger.info("Downloaded %s (%.0f KB)", url, size_kb)
     except requests.exceptions.Timeout:
@@ -92,18 +87,9 @@ def is_tld_blocked(domain: str, tld_set: set[str]) -> bool:
     return False
 
 
-def parse_domain_file(source_name: str, content: bytes | None, tld_set: set[str]) -> set[str]:
-    """Parse a downloaded blocklist and return a set of domains to block."""
-    if not content:
-        logger.warning("Missing %s, skipping", source_name)
-        return set()
-
-    raw = content.decode("utf-8", errors="ignore")
-    lines = [
-        s
-        for line in raw.splitlines()
-        if (s := line.strip()) and s[0] not in COMMENT_CHARS
-    ]
+def parse_domain_file(source_name: str, tld_set: set[str]) -> set[str]:
+    """Parse a cached blocklist and return a set of domains to block."""
+    lines = read_lines(source_name)
     if not lines:
         return set()
 
@@ -141,12 +127,6 @@ def validate_config(config: configparser.ConfigParser) -> bool:
     return True
 
 
-def chunk_list(items: list[str], chunk_size: int) -> Iterator[list[str]]:
-    """Yield successive chunks of size chunk_size from items."""
-    for i in range(0, len(items), chunk_size):
-        yield items[i : i + chunk_size]
-
-
 def run() -> None:
     """Main entry point: download, parse, and sync lists with Cloudflare."""
 
@@ -177,7 +157,6 @@ def run() -> None:
     logger.info("Starting concurrent downloads...")
 
     num_download_workers = max(1, min(len(list_names), MAX_DOWNLOAD_WORKERS))
-    num_parse_workers = max(1, min(len(block_files), MAX_PARSE_WORKERS))
 
     session = requests.Session()
     session.mount(
@@ -200,13 +179,8 @@ def run() -> None:
     tld_set: set[str] = parse_tld_file(tld_files[0]) if tld_files else set()
 
     all_domains: set[str] = set()
-    with ProcessPoolExecutor(max_workers=num_parse_workers) as ex:
-        futures = [
-            ex.submit(parse_domain_file, n, file_cache.get(n), tld_set)
-            for n in block_files
-        ]
-        for future in futures:
-            all_domains.update(future.result())
+    for n in block_files:
+        all_domains.update(parse_domain_file(n, tld_set))
 
     unique_count = len(all_domains)
     new_list_count = (unique_count - 1) // CHUNK_SIZE + 1
@@ -231,7 +205,7 @@ def run() -> None:
         cloudflare_api.create_policy_with_tlds(NAME_PREFIX_TLD, sorted(tld_set))
 
     cloudflare_api.delete_lists_and_policy(NAME_PREFIX, cf_lists)
-    cloudflare_api.create_lists_and_policy(NAME_PREFIX, sorted(all_domains))
+    cloudflare_api.create_lists_and_policy(NAME_PREFIX, sorted(all_domains), chunk_size=CHUNK_SIZE)
 
 
 if __name__ == "__main__":
