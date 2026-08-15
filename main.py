@@ -69,8 +69,7 @@ def parse_tld_file(name: str) -> set[str]:
     tlds = {
         cleaned
         for line in read_lines(name)
-        if not line.strip().startswith(("#", "!", "//"))
-        and (cleaned := "".join(ch for ch in line if ch.isalnum() or ch in "-.").strip("."))
+        if (cleaned := "".join(ch for ch in line if ch.isalnum() or ch in "-.").strip("."))
     }
     logger.info("TLDs loaded: %s%s", CustomFormatter.GREEN, len(tlds))
     return tlds
