@@ -38,16 +38,9 @@ def download_file(session: requests.Session, url: str, name: str) -> None:
         response = session.get(url, allow_redirects=True, timeout=TIMEOUT)
         response.raise_for_status()
         file_cache[name] = response.content
-        size_kb = len(response.content) / 1024
-        logger.info("Downloaded %s (%.0f KB)", url, size_kb)
-    except requests.exceptions.Timeout:
-        logger.error("Timeout downloading %s after %ds", url, TIMEOUT)
-    except requests.exceptions.ConnectionError as exc:
-        logger.error("Connection error downloading %s: %s", url, exc)
-    except requests.exceptions.HTTPError as exc:
-        logger.error("HTTP error downloading %s: %s", url, exc)
+        logger.info("Downloaded %s (%.0f KB)", url, len(response.content) / 1024)
     except requests.RequestException as exc:
-        logger.error("Error downloading %s: %s", url, exc)
+        logger.error("Failed downloading %s: %s", url, exc)
 
 
 def read_lines(name: str) -> list[str]:
