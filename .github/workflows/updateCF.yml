@@ -11,6 +11,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -22,7 +26,6 @@ jobs:
       uses: actions/setup-python@v7
       with:
         python-version: "3.14"
-        cache: 'pip'
 
     - name: Cache Poetry virtualenv and caches
       uses: actions/cache@v6
@@ -53,25 +56,26 @@ jobs:
       run: echo "$HOME/.local/bin" >> $GITHUB_PATH
 
     - name: Install dependencies with Poetry
-      env:
-        POETRY_VIRTUALENVS_IN_PROJECT: "true"
       run: |
         # Ensure Poetry creates an in-project virtualenv at .venv
         poetry config virtualenvs.in-project true --local
 
-        # Install without dev deps
-        poetry install --no-interaction --no-ansi --without dev
+        # Install without dev deps; --sync keeps .venv matching the lockfile exactly,
+        # removing anything that's fallen out of poetry.lock (important since .venv is cached)
+        poetry install --no-interaction --no-ansi --without dev --sync
 
     - name: Run update (with retries)
       env:
         CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
         CF_IDENTIFIER: ${{ secrets.CF_IDENTIFIER }}
+        MAX_ATTEMPTS: 3      # total attempts (1 initial + retries)
+        DELAY_SECONDS: 300   # fixed 5-minute wait between attempts
       run: |
-        # Configurable:
-        max_attempts=3       # total attempts (1 initial + retries)
-        delay_seconds=300    # fixed 5-minute wait between attempts
+        # Run update (with retries)
+        max_attempts="$MAX_ATTEMPTS"
+        delay_seconds="$DELAY_SECONDS"
         delay_minutes=$(( delay_seconds / 60 )) # convert to minutes
-        
+
         attempt=1
         while true; do
           echo "Attempt $attempt of $max_attempts: running update..."
