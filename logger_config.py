@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 
 class CustomFormatter(logging.Formatter):
@@ -18,7 +17,7 @@ class CustomFormatter(logging.Formatter):
     YELLOW = "\x1b[33;20m"
     GREEN = "\x1b[92m"
 
-    def __init__(self, fmt: Optional[str] = "%(message)s") -> None:
+    def __init__(self, fmt: str | None = "%(message)s") -> None:
         super().__init__(fmt)
 
     def format(self, record: logging.LogRecord) -> str:
