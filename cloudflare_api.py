@@ -43,20 +43,24 @@ def api_call(method: Any, endpoint: str, json: dict | None = None) -> Any:
         )
         raise SystemExit(64)
 
+
 def get_items_by_name(endpoint: str, name_prefix: str) -> tuple[list[dict], list[dict]]:
     """Retrieve items from an endpoint and return (filtered, all_items)."""
     data = api_call(session.get, endpoint) or []
     filtered = [item for item in data if item.get("name", "").startswith(name_prefix)]
     return filtered, data
 
+
 def get_lists(name_prefix: str) -> tuple[list[dict], list[dict]]:
     """Retrieve lists matching the given name prefix."""
     return get_items_by_name("lists", name_prefix)
+
 
 def get_policies(name_prefix: str) -> list[dict]:
     """Retrieve gateway policies (rules) matching the given name prefix."""
     policies, _ = get_items_by_name("rules", name_prefix)
     return policies
+
 
 def create_list(name: str, domains: list[str]) -> dict:
     """Create a named list populated with domains."""
@@ -70,10 +74,12 @@ def create_list(name: str, domains: list[str]) -> dict:
     logger.debug("Created list %s", name)
     return result
 
+
 def delete_list(list_id: str, name: str) -> None:
     """Delete a list given its ID."""
     api_call(session.delete, f"lists/{list_id}")
     logger.debug("Deleted list %s", name)
+
 
 def delete_policy(name_prefix: str) -> None:
     """Delete a firewall policy matching the given name prefix. """
@@ -87,6 +93,7 @@ def delete_policy(name_prefix: str) -> None:
 
     api_call(session.delete, f"rules/{policies[0]['id']}")
     logger.info("Deleted policy %s", name_prefix)
+
 
 def create_policy(name: str, list_ids: list[str] | None = None, regex_tld: str | None = None) -> None:
     """Create a gateway policy that blocks based on list IDs or a TLD regex."""
@@ -109,14 +116,16 @@ def create_policy(name: str, list_ids: list[str] | None = None, regex_tld: str |
     api_call(session.post, "rules", json=payload)
     logger.info("Created firewall policy: %s", name)
 
+
 def create_policy_with_tlds(name: str, tld_list: list[str]) -> None:
     """Create a TLD-based blocking policy from a list of TLDs."""
     regex_tld = rf"[.](|{'|'.join(tld_list)})$"
     create_policy(name, regex_tld=regex_tld)
 
+
 def create_lists_and_policy(name_prefix: str, unique_domains: list[str], chunk_size: int) -> None:
     """Chunk the domains into lists, create them in Cloudflare, then add a policy referencing the lists."""
-    logger.info(f"{CustomFormatter.YELLOW}Creating lists, please wait")
+    logger.info("%sCreating lists, please wait", CustomFormatter.YELLOW)
     list_ids: list[str] = []
 
     for i, chunk in enumerate(chunk_list(unique_domains, chunk_size), 1):
@@ -126,12 +135,14 @@ def create_lists_and_policy(name_prefix: str, unique_domains: list[str], chunk_s
 
     create_policy(name_prefix, list_ids=list_ids)
 
+
 def delete_lists_and_policy(name_prefix: str, lists: list[dict]) -> None:
     """Delete the firewall policy and the provided lists."""
     delete_policy(name_prefix)
-    logger.info(f"{CustomFormatter.YELLOW}Deleting lists, please wait")
+    logger.info("%sDeleting lists, please wait", CustomFormatter.YELLOW)
     for list_item in lists:
         delete_list(list_item["id"], list_item["name"])
+
 
 def chunk_list(items: list[str], chunk_size: int):
     """Yield successive chunks of size chunk_size from items."""
