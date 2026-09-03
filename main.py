@@ -28,22 +28,22 @@ COMMENT_CHARS = frozenset("!#;/[")
 
 logger = CustomFormatter.configure_logger("main")
 
-# Global cache for downloaded file contents (name -> bytes)
-file_cache: dict[str, bytes] = {}
 
-
-def download_file(session: requests.Session, url: str, name: str) -> None:
-    """Download a file and store in memory cache."""
+def download_file(
+    session: requests.Session, url: str, name: str
+) -> tuple[str, bytes] | None:
+    """Download a file and return (name, content), or None on failure."""
     try:
         response = session.get(url, allow_redirects=True, timeout=TIMEOUT)
         response.raise_for_status()
-        file_cache[name] = response.content
         logger.info("Downloaded %s (%.0f KB)", url, len(response.content) / 1024)
+        return name, response.content
     except requests.RequestException as exc:
         logger.error("Failed downloading %s: %s", url, exc)
+        return None
 
 
-def read_lines(name: str) -> list[str]:
+def read_lines(name: str, file_cache: dict[str, bytes]) -> list[str]:
     """Return non-empty, non-comment lines from cached file."""
     if name not in file_cache:
         logger.warning("Missing %s, skipping", name)
@@ -57,11 +57,11 @@ def read_lines(name: str) -> list[str]:
     ]
 
 
-def parse_tld_file(name: str) -> set[str]:
+def parse_tld_file(name: str, file_cache: dict[str, bytes]) -> set[str]:
     """Skip comment lines, strip characters other than alphanumerics, hyphens, and dots."""
     tlds = {
         cleaned
-        for line in read_lines(name)
+        for line in read_lines(name, file_cache)
         if (cleaned := "".join(ch for ch in line if ch.isalnum() or ch in "-.").strip("."))
     }
     logger.info("TLDs loaded: %s%s", CustomFormatter.GREEN, len(tlds))
@@ -70,9 +70,6 @@ def parse_tld_file(name: str) -> set[str]:
 
 def is_tld_blocked(domain: str, tld_set: set[str]) -> bool:
     """Check if domain's TLD or second-level TLD is in the blocklist."""
-    if not domain or not tld_set:
-        return False
-
     parts = domain.rsplit(".", 2)
     if len(parts) >= 2:
         if parts[-1] in tld_set:
@@ -82,9 +79,11 @@ def is_tld_blocked(domain: str, tld_set: set[str]) -> bool:
     return False
 
 
-def parse_domain_file(source_name: str, tld_set: set[str]) -> set[str]:
+def parse_domain_file(
+    source_name: str, tld_set: set[str], file_cache: dict[str, bytes]
+) -> set[str]:
     """Parse a cached blocklist and return a set of domains to block."""
-    lines = read_lines(source_name)
+    lines = read_lines(source_name, file_cache)
     if not lines:
         return set()
 
@@ -167,15 +166,19 @@ def run() -> None:
             ex.submit(download_file, session, config["Lists"][n], n)
             for n in list_names
         ]
-        for future in futures:
-            future.result()
+        file_cache: dict[str, bytes] = {
+            name: content
+            for future in futures
+            if (result := future.result()) is not None
+            for name, content in [result]
+        }
 
     # Parse TLDs if available and silently ignoring extras beyond index 0
-    tld_set: set[str] = parse_tld_file(tld_files[0]) if tld_files else set()
+    tld_set: set[str] = parse_tld_file(tld_files[0], file_cache) if tld_files else set()
 
     all_domains: set[str] = set()
     for n in block_files:
-        all_domains.update(parse_domain_file(n, tld_set))
+        all_domains.update(parse_domain_file(n, tld_set, file_cache))
 
     unique_count = len(all_domains)
     new_list_count = (unique_count - 1) // CHUNK_SIZE + 1
