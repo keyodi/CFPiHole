@@ -14,11 +14,14 @@ load_dotenv()
 
 CF_API_TOKEN = os.getenv("CF_API_TOKEN")
 CF_IDENTIFIER = os.getenv("CF_IDENTIFIER")
-BASE_URL = f"https://api.cloudflare.com/client/v4/accounts/{CF_IDENTIFIER}/gateway"
 
 # Credentials check
-if not all([CF_API_TOKEN, CF_IDENTIFIER]):
-    raise ValueError("Missing Cloudflare credentials")
+if not CF_API_TOKEN:
+    raise ValueError("Missing CF_API_TOKEN environment variable")
+if not CF_IDENTIFIER:
+    raise ValueError("Missing CF_IDENTIFIER environment variable")
+
+BASE_URL = f"https://api.cloudflare.com/client/v4/accounts/{CF_IDENTIFIER}/gateway"
 
 # Configure logging
 logger = CustomFormatter.configure_logger("cloudflare")
