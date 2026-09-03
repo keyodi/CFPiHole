@@ -70,6 +70,9 @@ def parse_tld_file(name: str) -> set[str]:
 
 def is_tld_blocked(domain: str, tld_set: set[str]) -> bool:
     """Check if domain's TLD or second-level TLD is in the blocklist."""
+    if not domain or not tld_set:
+        return False
+
     parts = domain.rsplit(".", 2)
     if len(parts) >= 2:
         if parts[-1] in tld_set:
