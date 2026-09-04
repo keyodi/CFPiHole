@@ -32,10 +32,10 @@ session.mount("https://", HTTPAdapter(pool_maxsize=20, pool_connections=20))
 
 
 def api_call(method: Any, endpoint: str, json: dict | None = None) -> Any:
-    """Make a Cloudflare Gateway API call and return the parsed result. """
+    """Make a Cloudflare Gateway API call and return the parsed result."""
     url = f"{BASE_URL}/{endpoint}"
     try:
-        response = method(url, json=json)
+        response = method(url, json=json, timeout=15)
         response.raise_for_status()
         logger.debug("[%s] %s", endpoint, response.status_code)
         return response.json().get("result", [])
@@ -85,7 +85,7 @@ def delete_list(list_id: str, name: str) -> None:
 
 
 def delete_policy(name_prefix: str) -> None:
-    """Delete a firewall policy matching the given name prefix. """
+    """Delete a firewall policy matching the given name prefix."""
     policies = get_policies(name_prefix)
 
     if not policies:
