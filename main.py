@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
 import configparser
 import os
 
 import requests
-from requests.adapters import HTTPAdapter
 
 import cloudflare_api
 from logger_config import CustomFormatter
@@ -20,9 +18,6 @@ TIMEOUT = 15
 # Cloudflare Gateway API limits
 MAX_LISTS = 300
 CHUNK_SIZE = 1000
-
-# Concurrency limits based on system capabilities and API rate limits
-MAX_DOWNLOAD_WORKERS = 32
 
 COMMENT_CHARS = frozenset("!#;/[")
 
@@ -148,30 +143,17 @@ def run() -> None:
     logger.debug("CFPiHole lists in Cloudflare: %s%s", CustomFormatter.YELLOW, len(cf_lists))
     logger.debug("Additional lists in Cloudflare: %s%s", CustomFormatter.YELLOW, extra_lists)
 
-    logger.info("Starting concurrent downloads...")
-
-    num_download_workers = max(1, min(len(list_names), MAX_DOWNLOAD_WORKERS))
+    logger.info("Starting downloads (sequential)...")
 
     session = requests.Session()
-    session.mount(
-        "https://",
-        HTTPAdapter(
-            pool_maxsize=num_download_workers,
-            pool_connections=num_download_workers
-        )
-    )
 
-    with ThreadPoolExecutor(max_workers=num_download_workers) as ex:
-        futures = [
-            ex.submit(download_file, session, config["Lists"][n], n)
-            for n in list_names
-        ]
-        file_cache: dict[str, bytes] = {
-            name: content
-            for future in futures
-            if (result := future.result()) is not None
-            for name, content in [result]
-        }
+    # Sequential download loop
+    file_cache: dict[str, bytes] = {}
+    for n in list_names:
+        result = download_file(session, config["Lists"][n], n)
+        if result is not None:
+            name, content = result
+            file_cache[name] = content
 
     # Parse TLDs if available and silently ignoring extras beyond index 0
     tld_set: set[str] = parse_tld_file(tld_files[0], file_cache) if tld_files else set()
