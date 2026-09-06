@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import configparser
-import os
 
 import requests
 
@@ -119,15 +118,11 @@ def validate_config(config: configparser.ConfigParser) -> bool:
 def run() -> None:
     """Main entry point: download, parse, and sync lists with Cloudflare."""
 
-    if not os.path.exists(CONFIG_FILE):
-        logger.error("Config file not found: %s", CONFIG_FILE)
-        raise SystemExit(1)
-
     config = configparser.ConfigParser(interpolation=None)
     try:
         config.read(CONFIG_FILE)
-    except configparser.Error as exc:
-        logger.error("Failed to parse %s: %s", CONFIG_FILE, exc)
+    except (FileNotFoundError, configparser.Error) as exc:
+        logger.error("Failed to read or parse %s: %s", CONFIG_FILE, exc)
         raise SystemExit(1)
 
     if not validate_config(config):
