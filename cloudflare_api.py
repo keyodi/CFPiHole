@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from typing import Any
 import os
+from typing import Any
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -147,7 +147,7 @@ def delete_lists_and_policy(name_prefix: str, lists: list[dict]) -> None:
         delete_list(list_item["id"], list_item["name"])
 
 
-def chunk_list(items: list[str], chunk_size: int):
+def chunk_list(items: list[str], chunk_size: int) -> list[list[str]]:
     """Yield successive chunks of size chunk_size from items."""
     for i in range(0, len(items), chunk_size):
         yield items[i : i + chunk_size]

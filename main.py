@@ -18,6 +18,7 @@ TIMEOUT = 15
 MAX_LISTS = 300
 CHUNK_SIZE = 1000
 
+# Characters that indicate a comment line in blocklists
 COMMENT_CHARS = frozenset("!#;/[")
 
 logger = CustomFormatter.configure_logger("main")
