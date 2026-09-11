@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 
 import requests
@@ -101,7 +100,7 @@ class CloudflareGateway:
 
     def create_tld_policy(self, name: str, tlds: list[str]) -> None:
         """Create a policy blocking DNS traffic ending in any of the given TLDs."""
-        escaped = [re.escape(tld) for tld in tlds]
+        escaped = [tld.replace(".", r"\.") for tld in tlds]
         regex_tld = rf"[.](|{'|'.join(escaped)})$"
         traffic = f'any(dns.domains[*] matches "{regex_tld}")'
         self._create_rule(name, traffic, block_page_enabled=True)
