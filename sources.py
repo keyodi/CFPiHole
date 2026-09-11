@@ -59,11 +59,12 @@ def _lines(raw: bytes) -> list[str]:
 
 def parse_tlds(raw: bytes) -> set[str]:
     """Skip comment lines, strip characters other than alphanumerics, hyphens, and dots."""
-    tlds = {
-        cleaned
-        for line in _lines(raw)
-        if (cleaned := "".join(ch for ch in line if ch.isalnum() or ch in "-.").strip("."))
-    }
+    tlds = set()
+    for line in _lines(raw):
+        allowed_chars = "".join(ch for ch in line if ch.isalnum() or ch in "-.")
+        cleaned = allowed_chars.strip(".")
+        if cleaned:
+            tlds.add(cleaned)
     logger.debug("Parsed %s TLDs", len(tlds))
     return tlds
 
