@@ -6,7 +6,7 @@ import sys
 from dotenv import load_dotenv
 
 import sources
-from cloudflare_gateway import CFList, CloudflareGateway
+from cloudflare_api import CFList, CloudflareGateway
 from config import load_config
 from logger_config import CustomFormatter
 
