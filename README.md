@@ -54,5 +54,3 @@ Notes
 - The script expects domain lists (one domain per line). It will normalize entries and skip invalid lines.
 - If you only provide a `[TLDList]`, the script imports the TLD list entries instead of full domains.
 - The repository's workflow uses the `config.ini` file in the default branch or the branch where the Action runs; ensure the config is present/updated in that branch.
-
-If you'd like, I can also add a sample `config.ini` file to the repository or update the GitHub Action workflow to include an example run — tell me which branch to use if you want me to create files on a specific branch.
