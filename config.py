@@ -18,19 +18,7 @@ def _validate_urls(section_name: str, urls: dict[str, str]) -> None:
 
 
 def load_config(path: str) -> Config:
-    """Load and validate config.ini.
-
-    Expected format:
-
-        [BlockLists]
-        SomeName = https://example.com/blocklist.txt
-
-        [TLDList]
-        TLD = https://example.com/tlds.txt
-
-    [TLDList] is optional. At least one [BlockLists] entry or a [TLDList]
-    entry is required.
-    """
+    """Load and validate config.ini."""
     if not os.path.exists(path):
         raise SystemExit(f"Config file not found: {path}")
 
