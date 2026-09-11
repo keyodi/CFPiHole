@@ -67,6 +67,7 @@ def sync_domain_policy(
     logger.info("Lists to create: %s%s", CustomFormatter.GREEN, new_list_count)
 
     gateway.delete_policy(NAME_PREFIX)
+    logger.info("%sDeleting lists, please wait", CustomFormatter.YELLOW)
     for lst in existing_lists:
         gateway.delete_list(lst)
 
