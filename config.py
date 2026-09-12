@@ -13,8 +13,8 @@ class Config:
 
 def _validate_urls(section_name: str, urls: dict[str, str]) -> None:
     for key, url in urls.items():
-        if not url.startswith(("http://", "https://")):
-            raise SystemExit(f"Invalid URL for [{section_name}] '{key}': {url}")
+        if not url.startswith("https://"):
+            raise SystemExit(f"Invalid URL for [{section_name}] '{key}': must use https:// ({url})")
 
 
 def load_config(path: str) -> Config:
