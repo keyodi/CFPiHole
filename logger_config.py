@@ -21,13 +21,10 @@ class CustomFormatter(logging.Formatter):
         super().__init__(fmt)
 
     def format(self, record: logging.LogRecord) -> str:
-        """Format a LogRecord with ANSI color codes."""
+        """Format a LogRecord and wrap the rendered line in an ANSI color code."""
         color = self.COLORS.get(record.levelno, self.RESET)
-        original_msg = record.msg
-        record.msg = f"{color}{record.msg}{self.RESET}"
         formatted = super().format(record)
-        record.msg = original_msg
-        return formatted
+        return f"{color}{formatted}{self.RESET}"
 
     @staticmethod
     def configure_logger(name: str, level: int = logging.INFO) -> logging.Logger:
