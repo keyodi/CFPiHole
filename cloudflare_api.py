@@ -12,6 +12,10 @@ logger = CustomFormatter.configure_logger("cloudflare")
 REQUEST_TIMEOUT = 15
 
 
+class CloudflareAPIError(Exception):
+    """Raised when the Cloudflare API request fails or returns an unexpected response."""
+
+
 @dataclass(frozen=True)
 class CFList:
     id: str
@@ -34,18 +38,22 @@ class CloudflareGateway:
         self._session.headers.update({"Authorization": f"Bearer {api_token}"})
         self._session.mount("https://", HTTPAdapter(pool_maxsize=20, pool_connections=20))
 
-    def _request(self, method: str, endpoint: str, json: dict | None = None):
+    def _request(self, method: str, endpoint: str, json: dict | None = None) -> list | dict:
+        """Send a request to the Gateway API and return the 'result' payload."""
         url = f"{self._base_url}/{endpoint}"
         try:
             response = self._session.request(method, url, json=json, timeout=REQUEST_TIMEOUT)
             response.raise_for_status()
-            return response.json().get("result", [])
+            data = response.json()
         except requests.RequestException as exc:
-            logger.error("Cloudflare API request failed: %s", exc)
-            raise SystemExit(64)
-        except (ValueError, KeyError) as exc:
-            logger.error("Unexpected Cloudflare API response: %s", exc)
-            raise SystemExit(64)
+            raise CloudflareAPIError(f"Cloudflare API request failed: {exc}") from exc
+        except ValueError as exc:
+            raise CloudflareAPIError(f"Unexpected Cloudflare API response: {exc}") from exc
+
+        if not data.get("success", True):
+            raise CloudflareAPIError(f"Cloudflare API returned errors: {data.get('errors')}")
+
+        return data.get("result", [])
 
     def all_lists(self) -> list[CFList]:
         """Retrieve every list on the account."""
