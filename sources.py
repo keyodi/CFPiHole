@@ -18,7 +18,6 @@ MAX_DOWNLOAD_WORKERS = 32
 @dataclass(frozen=True)
 class FetchResult:
     """Result of fetching a set of named URLs."""
-
     content: dict[str, bytes] = field(default_factory=dict)
     failed: list[str] = field(default_factory=list)
 
@@ -80,13 +79,20 @@ def is_tld_blocked(domain: str, tld_set: set[str]) -> bool:
     return False
 
 
+def _is_hosts_format(lines: list[str]) -> bool:
+    """Detect hosts format by sampling up to 30 lines rather than just the first."""
+    sample = lines[:30]
+    hosts_count = sum(1 for l in sample if l.startswith(("127.0.0.1 ", "0.0.0.0 ")))
+    return hosts_count > len(sample) / 2
+
+
 def parse_domains(raw: bytes, tld_set: set[str]) -> set[str]:
     """Parse a blocklist (plain-domain or hosts format) into a set of domains."""
     lines = _lines(raw)
     if not lines:
         return set()
 
-    is_hosts = lines[0].startswith(("127.0.0.1 ", "0.0.0.0 "))
+    is_hosts = _is_hosts_format(lines)
 
     def _extract(line: str) -> str | None:
         # Hosts-format lines may list multiple hostnames after the IP
