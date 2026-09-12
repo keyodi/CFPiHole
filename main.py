@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import os
 import sys
+from typing import Iterator
 
 from dotenv import load_dotenv
 
 import sources
-from cloudflare_api import CFList, CloudflareGateway
+from cloudflare_api import CFList, CloudflareAPIError, CloudflareGateway
 from config import load_config
 from logger_config import CustomFormatter
 
@@ -23,7 +24,7 @@ CHUNK_SIZE = 1000
 logger = CustomFormatter.configure_logger("main")
 
 
-def chunk_list(items: list[str], chunk_size: int):
+def chunk_list(items: list[str], chunk_size: int) -> Iterator[list[str]]:
     """Yield successive chunks of size chunk_size from items."""
     for i in range(0, len(items), chunk_size):
         yield items[i : i + chunk_size]
@@ -80,15 +81,15 @@ def sync_domain_policy(
 
 
 def run() -> None:
-    cf_token = os.getenv("CF_API_TOKEN")
-    cf_account = os.getenv("CF_IDENTIFIER")
-    if not cf_token:
+    CF_API_TOKEN = os.getenv("CF_API_TOKEN")
+    CF_IDENTIFIER = os.getenv("CF_IDENTIFIER")
+    if not CF_API_TOKEN:
         raise SystemExit("Missing CF_API_TOKEN environment variable")
-    if not cf_account:
+    if not CF_IDENTIFIER:
         raise SystemExit("Missing CF_IDENTIFIER environment variable")
 
     config = load_config(CONFIG_FILE)
-    gateway = CloudflareGateway(account_id=cf_account, api_token=cf_token)
+    gateway = CloudflareGateway(account_id=CF_IDENTIFIER, api_token=CF_API_TOKEN)
 
     # Fetch the TLD source alongside the block-list sources in one batch of downloads.
     fetch_urls = dict(config.block_list_urls)
@@ -117,8 +118,9 @@ def run() -> None:
             "refusing to modify existing lists"
         )
 
-    existing_lists = gateway.lists(NAME_PREFIX)
-    extra_lists = len(gateway.all_lists()) - len(existing_lists)
+    account_lists = gateway.all_lists()
+    existing_lists = [lst for lst in account_lists if lst.name.startswith(NAME_PREFIX)]
+    extra_lists = len(account_lists) - len(existing_lists)
     logger.debug("CFPiHole lists in Cloudflare: %s%s", CustomFormatter.YELLOW, len(existing_lists))
     logger.debug("Additional lists in Cloudflare: %s%s", CustomFormatter.YELLOW, extra_lists)
 
@@ -134,6 +136,9 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         logger.warning("Interrupted by user")
         sys.exit(130)
+    except CloudflareAPIError as exc:
+        logger.critical("Cloudflare API error: %s", exc)
+        sys.exit(64)  # exit code the GitHub Actions workflow watches for to trigger a retry
     except Exception:
         logger.critical("Fatal error", exc_info=True)
         sys.exit(1)
