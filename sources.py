@@ -82,7 +82,10 @@ def is_tld_blocked(domain: str, tld_set: set[str]) -> bool:
 def _is_hosts_format(lines: list[str]) -> bool:
     """Detect hosts format by sampling up to 30 lines rather than just the first."""
     sample = lines[:30]
-    hosts_count = sum(1 for l in sample if l.startswith(("127.0.0.1 ", "0.0.0.0 ")))
+    hosts_count = sum(
+        1 for line in sample
+        if line.split(None, 1)[0] in ("127.0.0.1", "0.0.0.0")
+    )
     return hosts_count > len(sample) / 2
 
 
