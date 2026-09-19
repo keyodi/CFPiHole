@@ -7,8 +7,10 @@ import requests
 
 import cloudflare_api as cf
 from cloudflare_api import CloudflareAPIError
+import logger
+from logger import v
 
-# constants
+# ── constants ──────────────────────────────────────────────────────────────────
 
 NAME_PREFIX     = "[CFPihole] Block Ads"
 NAME_PREFIX_TLD = "[CFPihole] Block TLDs"
@@ -16,27 +18,7 @@ CHUNK_SIZE      = 1000   # Cloudflare list size limit
 MAX_LISTS       = 300    # Cloudflare account list limit
 COMMENT_CHARS   = set("!#;/[")
 
-# ── colored logging ────────────────────────────────────────────────────────────
-
-RESET  = "\033[0m"
-COLORS = {
-    logging.DEBUG:    "\033[36m",   # cyan
-    logging.INFO:     "\033[32m",   # green
-    logging.WARNING:  "\033[33m",   # yellow
-    logging.ERROR:    "\033[31m",   # red
-    logging.CRITICAL: "\033[1;31m", # bold red
-}
-
-class ColorFormatter(logging.Formatter):
-    def format(self, record):
-        color = COLORS.get(record.levelno, RESET)
-        record.levelname = f"{color}{record.levelname}{RESET}"
-        record.msg = f"{color}{record.msg}{RESET}"
-        return super().format(record)
-
-handler = logging.StreamHandler()
-handler.setFormatter(ColorFormatter("%(message)s"))
-logging.basicConfig(level=logging.INFO, handlers=[handler])
+logger.setup()
 log = logging.getLogger("cfpihole")
 
 # ── config loading ─────────────────────────────────────────────────────────────
@@ -64,10 +46,10 @@ def download(url):
     try:
         r = requests.get(url, timeout=15, allow_redirects=True)
         r.raise_for_status()
-        log.info("Downloaded %s (%.0f KB)", url, len(r.content) / 1024)
+        log.info("Downloaded %s (%s KB)", v(url), v(f"{len(r.content) / 1024:.0f}"))
         return r.content
     except requests.RequestException as exc:
-        log.error("Failed downloading %s: %s", url, exc)
+        log.error("Failed downloading %s: %s", v(url), v(exc))
         return None
 
 # ── parsing ────────────────────────────────────────────────────────────────────
@@ -157,7 +139,7 @@ def main():
         return
 
     if len(all_domains) == existing_total:
-        log.info("Domain count unchanged (%d) — nothing to do", existing_total)
+        log.info("Domain count unchanged (%s) — nothing to do", v(existing_total))
         return
 
     chunks = [sorted(all_domains)[i:i + CHUNK_SIZE]
@@ -168,7 +150,7 @@ def main():
     if len(chunks) + extra_lists > MAX_LISTS:
         sys.exit(f"Would exceed {MAX_LISTS} list limit — use smaller block lists")
 
-    log.info("Unique domains: %d  →  %d lists", len(all_domains), len(chunks))
+    log.info("Unique domains: %s  →  %s lists", v(len(all_domains)), v(len(chunks)))
 
     cf.delete_rule(session, base, NAME_PREFIX)
     cf.delete_lists_by_prefix(session, base, NAME_PREFIX)
