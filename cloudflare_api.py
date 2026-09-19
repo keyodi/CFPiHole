@@ -4,6 +4,13 @@ import requests
 
 log = logging.getLogger("cfpihole")
 
+WHITE = "\033[97m"
+RESET = "\033[0m"
+
+def v(value):
+    """Wrap a variable value in white so it stands out in a colored log line."""
+    return f"{WHITE}{value}{RESET}"
+
 
 class CloudflareAPIError(Exception):
     """Raised on any Cloudflare API failure — caught in main.py for exit code 64."""
@@ -33,14 +40,14 @@ def delete_rule(session, base, name_prefix):
     for rule in get_rules(session, base):
         if rule.get("name", "").startswith(name_prefix):
             _request(session, "DELETE", f"{base}/rules/{rule['id']}")
-            log.info("Deleted rule: %s", rule["name"])
+            log.info("Deleted rule: %s", v(rule["name"]))
 
 
 def delete_lists_by_prefix(session, base, prefix):
     for lst in get_lists(session, base):
         if lst["name"].startswith(prefix):
             _request(session, "DELETE", f"{base}/lists/{lst['id']}")
-            log.info("Deleted list: %s", lst["name"])
+            log.info("Deleted list: %s", v(lst["name"]))
 
 
 def create_list(session, base, name, domains):
@@ -50,7 +57,7 @@ def create_list(session, base, name, domains):
         "type": "DOMAIN",
         "items": [{"value": d} for d in domains],
     })
-    log.info("Created list: %s (%d domains)", name, len(domains))
+    log.info("Created list: %s (%s domains)", v(name), v(len(domains)))
     return result["id"]
 
 
@@ -65,7 +72,7 @@ def create_domain_rule(session, base, name, list_ids):
         "traffic": traffic,
         "rule_settings": {"block_page_enabled": False},
     })
-    log.info("Created domain rule: %s", name)
+    log.info("Created domain rule: %s", v(name))
 
 
 def create_tld_rule(session, base, name, tlds):
@@ -80,4 +87,4 @@ def create_tld_rule(session, base, name, tlds):
         "traffic": traffic,
         "rule_settings": {"block_page_enabled": True},
     })
-    log.info("Created TLD rule: %s", name)
+    log.info("Created TLD rule: %s", v(name))
