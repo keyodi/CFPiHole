@@ -1,126 +1,83 @@
-from __future__ import annotations
-
-from dataclasses import dataclass
+import logging
 
 import requests
-from requests.adapters import HTTPAdapter
 
-from logger_config import CustomFormatter
-
-logger = CustomFormatter.configure_logger("cloudflare")
-
-REQUEST_TIMEOUT = 15
+log = logging.getLogger("cfpihole")
 
 
 class CloudflareAPIError(Exception):
-    """Raised when the Cloudflare API request fails or returns an unexpected response."""
+    """Raised on any Cloudflare API failure — caught in main.py for exit code 64."""
 
 
-@dataclass(frozen=True)
-class CFList:
-    id: str
-    name: str
-    count: int = 0
+def _request(session, method, url, json=None):
+    try:
+        r = session.request(method, url, json=json, timeout=15)
+        r.raise_for_status()
+        data = r.json()
+    except requests.RequestException as exc:
+        raise CloudflareAPIError(f"Request failed: {exc}") from exc
+    if not data.get("success", True):
+        raise CloudflareAPIError(f"Cloudflare API error: {data.get('errors')}")
+    return data.get("result", [])
 
 
-@dataclass(frozen=True)
-class CFPolicy:
-    id: str
-    name: str
+def get_lists(session, base):
+    return _request(session, "GET", f"{base}/lists") or []
 
 
-class CloudflareGateway:
-    """Thin typed client for the Cloudflare Zero Trust Gateway API."""
+def get_rules(session, base):
+    return _request(session, "GET", f"{base}/rules") or []
 
-    def __init__(self, account_id: str, api_token: str) -> None:
-        self._base_url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/gateway"
-        self._session = requests.Session()
-        self._session.headers.update({"Authorization": f"Bearer {api_token}"})
-        self._session.mount("https://", HTTPAdapter(pool_maxsize=20, pool_connections=20))
 
-    def _request(self, method: str, endpoint: str, json: dict | None = None) -> list | dict:
-        """Send a request to the Gateway API and return the 'result' payload."""
-        url = f"{self._base_url}/{endpoint}"
-        try:
-            response = self._session.request(method, url, json=json, timeout=REQUEST_TIMEOUT)
-            response.raise_for_status()
-            data = response.json()
-        except requests.RequestException as exc:
-            raise CloudflareAPIError(f"Cloudflare API request failed: {exc}") from exc
-        except ValueError as exc:
-            raise CloudflareAPIError(f"Unexpected Cloudflare API response: {exc}") from exc
+def delete_rule(session, base, name_prefix):
+    for rule in get_rules(session, base):
+        if rule.get("name", "").startswith(name_prefix):
+            _request(session, "DELETE", f"{base}/rules/{rule['id']}")
+            log.info("Deleted rule: %s", rule["name"])
 
-        if not data.get("success", True):
-            raise CloudflareAPIError(f"Cloudflare API returned errors: {data.get('errors')}")
 
-        return data.get("result", [])
+def delete_lists_by_prefix(session, base, prefix):
+    for lst in get_lists(session, base):
+        if lst["name"].startswith(prefix):
+            _request(session, "DELETE", f"{base}/lists/{lst['id']}")
+            log.info("Deleted list: %s", lst["name"])
 
-    def all_lists(self) -> list[CFList]:
-        """Retrieve every list on the account."""
-        data = self._request("GET", "lists") or []
-        return [CFList(id=d["id"], name=d["name"], count=d.get("count", 0)) for d in data]
 
-    def lists(self, name_prefix: str) -> list[CFList]:
-        """Retrieve lists whose name starts with name_prefix."""
-        return [lst for lst in self.all_lists() if lst.name.startswith(name_prefix)]
+def create_list(session, base, name, domains):
+    result = _request(session, "POST", f"{base}/lists", json={
+        "name": name,
+        "description": "Created by CFPiHole.",
+        "type": "DOMAIN",
+        "items": [{"value": d} for d in domains],
+    })
+    log.info("Created list: %s (%d domains)", name, len(domains))
+    return result["id"]
 
-    def policy(self, name_prefix: str) -> CFPolicy | None:
-        """Retrieve the single policy matching name_prefix, or None."""
-        data = self._request("GET", "rules") or []
-        matches = [d for d in data if d.get("name", "").startswith(name_prefix)]
-        if not matches:
-            return None
-        if len(matches) > 1:
-            raise ValueError(f"More than one policy found matching {name_prefix!r}")
-        return CFPolicy(id=matches[0]["id"], name=matches[0]["name"])
 
-    def create_list(self, name: str, domains: list[str]) -> CFList:
-        """Create a named DOMAIN list."""
-        payload = {
-            "name": name,
-            "description": "Created by script.",
-            "type": "DOMAIN",
-            "items": [{"value": domain} for domain in domains],
-        }
-        result = self._request("POST", "lists", json=payload)
-        logger.debug("Created list %s", name)
-        return CFList(id=result["id"], name=name, count=len(domains))
+def create_domain_rule(session, base, name, list_ids):
+    traffic = " or ".join(f"any(dns.domains[*] in ${lid})" for lid in list_ids)
+    _request(session, "POST", f"{base}/rules", json={
+        "name": name,
+        "description": "Created by CFPiHole.",
+        "action": "block",
+        "enabled": True,
+        "filters": ["dns"],
+        "traffic": traffic,
+        "rule_settings": {"block_page_enabled": False},
+    })
+    log.info("Created domain rule: %s", name)
 
-    def delete_list(self, cf_list: CFList) -> None:
-        self._request("DELETE", f"lists/{cf_list.id}")
-        logger.debug("Deleted list %s", cf_list.name)
 
-    def delete_policy(self, name_prefix: str) -> None:
-        policy = self.policy(name_prefix)
-        if policy is None:
-            logger.info("No firewall policy %s found to delete", name_prefix)
-            return
-        self._request("DELETE", f"rules/{policy.id}")
-        logger.info("Deleted policy %s", name_prefix)
-
-    def create_domain_policy(self, name: str, list_ids: list[str]) -> None:
-        """Create a policy blocking DNS traffic matching any of the given lists."""
-        if not list_ids:
-            logger.warning("No list IDs provided, skipping policy creation: %s", name)
-            return
-        traffic = " or ".join(f"any(dns.domains[*] in ${lid})" for lid in list_ids)
-        self._create_rule(name, traffic, block_page_enabled=False)
-
-    def create_tld_policy(self, name: str, tlds: list[str]) -> None:
-        """Create a policy blocking DNS traffic ending in any of the given TLDs."""
-        regex_tld = rf"[.](|{'|'.join(tlds)})$"
-        traffic = f'any(dns.domains[*] matches "{regex_tld}")'
-        self._create_rule(name, traffic, block_page_enabled=True)
-
-    def _create_rule(self, name: str, traffic: str, block_page_enabled: bool) -> None:
-        payload = {
-            "name": name,
-            "description": "Created by script.",
-            "action": "block",
-            "enabled": True,
-            "filters": ["dns"],
-            "traffic": traffic,
-            "rule_settings": {"block_page_enabled": block_page_enabled},
-        }
-        self._request("POST", "rules", json=payload)
-        logger.info("Created firewall policy: %s", name)
+def create_tld_rule(session, base, name, tlds):
+    regex = rf"[.](|{'|'.join(tlds)})$"
+    traffic = f'any(dns.domains[*] matches "{regex}")'
+    _request(session, "POST", f"{base}/rules", json={
+        "name": name,
+        "description": "Created by CFPiHole.",
+        "action": "block",
+        "enabled": True,
+        "filters": ["dns"],
+        "traffic": traffic,
+        "rule_settings": {"block_page_enabled": True},
+    })
+    log.info("Created TLD rule: %s", name)
