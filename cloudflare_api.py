@@ -2,14 +2,9 @@ import logging
 
 import requests
 
+from logger import v
+
 log = logging.getLogger("cfpihole")
-
-WHITE = "\033[97m"
-RESET = "\033[0m"
-
-def v(value):
-    """Wrap a variable value in white so it stands out in a colored log line."""
-    return f"{WHITE}{value}{RESET}"
 
 
 class CloudflareAPIError(Exception):
