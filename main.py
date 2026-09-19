@@ -1,144 +1,194 @@
-from __future__ import annotations
-
+import configparser
+import logging
 import os
 import sys
-from typing import Iterator
 
-from dotenv import load_dotenv
+import requests
 
-import sources
-from cloudflare_api import CFList, CloudflareAPIError, CloudflareGateway
-from config import load_config
-from logger_config import CustomFormatter
+import cloudflare_api as cf
+from cloudflare_api import CloudflareAPIError
 
-load_dotenv()
+# constants
 
-NAME_PREFIX = "[CFPihole] Block Ads"
+NAME_PREFIX     = "[CFPihole] Block Ads"
 NAME_PREFIX_TLD = "[CFPihole] Block TLDs"
-CONFIG_FILE = "config.ini"
+CHUNK_SIZE      = 1000   # Cloudflare list size limit
+MAX_LISTS       = 300    # Cloudflare account list limit
+COMMENT_CHARS   = set("!#;/[")
 
-# Cloudflare Gateway API limits
-MAX_LISTS = 300
-CHUNK_SIZE = 1000
+# ── colored logging ────────────────────────────────────────────────────────────
 
-logger = CustomFormatter.configure_logger("main")
+RESET  = "\033[0m"
+COLORS = {
+    logging.DEBUG:    "\033[36m",   # cyan
+    logging.INFO:     "\033[32m",   # green
+    logging.WARNING:  "\033[33m",   # yellow
+    logging.ERROR:    "\033[31m",   # red
+    logging.CRITICAL: "\033[1;31m", # bold red
+}
 
+class ColorFormatter(logging.Formatter):
+    def format(self, record):
+        color = COLORS.get(record.levelno, RESET)
+        record.levelname = f"{color}{record.levelname}{RESET}"
+        record.msg = f"{color}{record.msg}{RESET}"
+        return super().format(record)
 
-def chunk_list(items: list[str], chunk_size: int) -> Iterator[list[str]]:
-    """Yield successive chunks of size chunk_size from items."""
-    for i in range(0, len(items), chunk_size):
-        yield items[i : i + chunk_size]
+handler = logging.StreamHandler()
+handler.setFormatter(ColorFormatter("%(levelname)s %(message)s"))
+logging.basicConfig(level=logging.INFO, handlers=[handler])
+log = logging.getLogger("cfpihole")
 
+# ── config loading ─────────────────────────────────────────────────────────────
 
-def sync_tld_policy(gateway: CloudflareGateway, tld_set: set[str]) -> None:
-    """TLD policy is independent of the domain-list policy: rebuild from tld_set alone."""
-    gateway.delete_policy(NAME_PREFIX_TLD)
+def load_config(path="config.ini"):
+    if not os.path.exists(path):
+        sys.exit(f"Config file not found: {path}")
+    p = configparser.ConfigParser(interpolation=None)
+    p.read(path)
+    block_urls = dict(p.items("BlockLists")) if p.has_section("BlockLists") else {}
+    tld_urls   = dict(p.items("TLDList"))   if p.has_section("TLDList")   else {}
+    if not block_urls and not tld_urls:
+        sys.exit("config.ini has no [BlockLists] or [TLDList] entries")
+    for url in list(block_urls.values()) + list(tld_urls.values()):
+        if not url.startswith("https://"):
+            sys.exit(f"URL must use https://: {url}")
+    if len(tld_urls) > 1:
+        sys.exit("Only one URL is supported in [TLDList]")
+    return block_urls, next(iter(tld_urls.values()), None)
+
+# ── downloading ────────────────────────────────────────────────────────────────
+
+def download(url):
+    """Download a URL and return raw bytes, or None on failure."""
+    try:
+        r = requests.get(url, timeout=15, allow_redirects=True)
+        r.raise_for_status()
+        log.info("Downloaded %s (%.0f KB)", url, len(r.content) / 1024)
+        return r.content
+    except requests.RequestException as exc:
+        log.error("Failed downloading %s: %s", url, exc)
+        return None
+
+# ── parsing ────────────────────────────────────────────────────────────────────
+
+def _clean_lines(raw):
+    """Return non-empty, non-comment lines from raw bytes."""
+    text = raw.decode("utf-8", errors="ignore")
+    return [s for line in text.splitlines()
+            if (s := line.strip()) and s[0] not in COMMENT_CHARS]
+
+def parse_tlds(raw):
+    tlds = set()
+    for line in _clean_lines(raw):
+        cleaned = "".join(ch for ch in line if ch.isalnum() or ch in "-.").strip(".")
+        if cleaned:
+            tlds.add(cleaned)
+    return tlds
+
+def _tld_blocked(domain, tld_set):
+    parts = domain.rsplit(".", 2)
+    return (len(parts) >= 2 and parts[-1] in tld_set) or \
+           (len(parts) >= 3 and f"{parts[-2]}.{parts[-1]}" in tld_set)
+
+def parse_domains(raw, tld_set):
+    lines = _clean_lines(raw)
+    if not lines:
+        return set()
+    sample = lines[:30]
+    is_hosts = sum(1 for l in sample if l.startswith(("127.0.0.1 ", "0.0.0.0 "))) > len(sample) / 2
+
+    domains = set()
+    for line in lines:
+        parts = line.split()
+        domain = (parts[1] if is_hosts and len(parts) > 1 else parts[0]).lower().rstrip(".")
+        if is_hosts and "localhost" in domain:
+            continue
+        if tld_set and _tld_blocked(domain, tld_set):
+            continue
+        domains.add(domain)
+    return domains
+
+# ── main ───────────────────────────────────────────────────────────────────────
+
+def main():
+    CF_API_TOKEN      = os.getenv("CF_API_TOKEN")  or sys.exit("Missing CF_API_TOKEN")
+    CF_IDENTIFIER = os.getenv("CF_IDENTIFIER") or sys.exit("Missing CF_IDENTIFIER")
+    base = f"https://api.cloudflare.com/client/v4/accounts/{CF_IDENTIFIER}/gateway"
+
+    session = requests.Session()
+    session.headers["Authorization"] = f"Bearer {CF_API_TOKEN}"
+
+    block_urls, tld_url = load_config()
+
+    # Download and parse TLD list
+    tld_set = set()
+    if tld_url:
+        raw = download(tld_url)
+        if raw:
+            tld_set = parse_tlds(raw)
+
+    # Download and parse block lists
+    all_domains = set()
+    any_failed = False
+    for name, url in block_urls.items():
+        raw = download(url)
+        if raw is None:
+            any_failed = True
+        else:
+            all_domains.update(parse_domains(raw, tld_set))
+
+    if block_urls and any_failed and not all_domains:
+        sys.exit("All block-list downloads failed — not modifying Cloudflare")
+
+    # Sync TLD rule
+    cf.delete_rule(session, base, NAME_PREFIX_TLD)
     if tld_set:
-        gateway.create_tld_policy(NAME_PREFIX_TLD, sorted(tld_set))
-        logger.info("TLD policy created: %s%s TLDs", CustomFormatter.GREEN, len(tld_set))
-    else:
-        logger.info("No TLDs to block, TLD policy removed")
+        cf.create_tld_rule(session, base, NAME_PREFIX_TLD, sorted(tld_set))
 
+    # Sync domain lists + rule
+    existing_lists = [l for l in cf.get_lists(session, base) if l["name"].startswith(NAME_PREFIX)]
+    existing_total = sum(l.get("count", 0) for l in existing_lists)
 
-def sync_domain_policy(
-    gateway: CloudflareGateway,
-    domains: set[str],
-    existing_lists: list[CFList],
-    extra_lists: int,
-) -> None:
-    """Domain-list policy is independent of the TLD policy."""
-    if not domains:
-        logger.warning("No domains to block, removing existing lists/policy")
-        gateway.delete_policy(NAME_PREFIX)
-        for lst in existing_lists:
-            gateway.delete_list(lst)
+    if not all_domains:
+        log.warning("No domains to block — removing existing lists/rule")
+        cf.delete_rule(session, base, NAME_PREFIX)
+        cf.delete_lists_by_prefix(session, base, NAME_PREFIX)
         return
 
-    existing_total = sum(lst.count for lst in existing_lists)
-    if len(domains) == existing_total:
-        logger.warning("Domain count unchanged (%s), stopping", existing_total)
+    if len(all_domains) == existing_total:
+        log.info("Domain count unchanged (%d) — nothing to do", existing_total)
         return
 
-    new_list_count = (len(domains) - 1) // CHUNK_SIZE + 1
-    if new_list_count + extra_lists > MAX_LISTS:
-        logger.warning("Max %s lists allowed. Select smaller blocklists, stopping", MAX_LISTS)
-        return
+    chunks = [sorted(all_domains)[i:i + CHUNK_SIZE]
+              for i in range(0, len(all_domains), CHUNK_SIZE)]
 
-    logger.info("Unique domains: %s%s", CustomFormatter.GREEN, len(domains))
-    logger.info("Lists to create: %s%s", CustomFormatter.GREEN, new_list_count)
+    all_lists = cf.get_lists(session, base)
+    extra_lists = len(all_lists) - len(existing_lists)
+    if len(chunks) + extra_lists > MAX_LISTS:
+        sys.exit(f"Would exceed {MAX_LISTS} list limit — use smaller block lists")
 
-    gateway.delete_policy(NAME_PREFIX)
-    logger.info("%sDeleting lists, please wait", CustomFormatter.YELLOW)
-    for lst in existing_lists:
-        gateway.delete_list(lst)
+    log.info("Unique domains: %d  →  %d lists", len(all_domains), len(chunks))
 
-    logger.info("%sCreating lists, please wait", CustomFormatter.YELLOW)
-    list_ids = [
-        gateway.create_list(f"{NAME_PREFIX} {i}", batch).id
-        for i, batch in enumerate(chunk_list(sorted(domains), CHUNK_SIZE), 1)
-    ]
-    gateway.create_domain_policy(NAME_PREFIX, list_ids)
+    cf.delete_rule(session, base, NAME_PREFIX)
+    cf.delete_lists_by_prefix(session, base, NAME_PREFIX)
 
+    list_ids = [cf.create_list(session, base, f"{NAME_PREFIX} {i}", chunk)
+                for i, chunk in enumerate(chunks, 1)]
 
-def run() -> None:
-    CF_API_TOKEN = os.getenv("CF_API_TOKEN")
-    CF_IDENTIFIER = os.getenv("CF_IDENTIFIER")
-    if not CF_API_TOKEN:
-        raise SystemExit("Missing CF_API_TOKEN environment variable")
-    if not CF_IDENTIFIER:
-        raise SystemExit("Missing CF_IDENTIFIER environment variable")
-
-    config = load_config(CONFIG_FILE)
-    gateway = CloudflareGateway(account_id=CF_IDENTIFIER, api_token=CF_API_TOKEN)
-
-    # Fetch the TLD source alongside the block-list sources in one batch of downloads.
-    fetch_urls = dict(config.block_list_urls)
-    if config.tld_list_url:
-        fetch_urls["__tld__"] = config.tld_list_url
-
-    logger.info("Starting concurrent downloads...")
-    fetched = sources.fetch_all(fetch_urls)
-
-    tld_set: set[str] = set()
-    if config.tld_list_url:
-        tld_raw = fetched.content.get("__tld__")
-        if tld_raw is not None:
-            tld_set = sources.parse_tlds(tld_raw)
-
-    all_domains: set[str] = set()
-    for name in config.block_list_urls:
-        raw = fetched.content.get(name)
-        if raw is not None:
-            all_domains.update(sources.parse_domains(raw, tld_set))
-
-    domain_failures = [n for n in config.block_list_urls if n in fetched.failed]
-    if config.block_list_urls and domain_failures and not all_domains:
-        raise SystemExit(
-            f"All domain-list downloads failed ({', '.join(domain_failures)}), "
-            "refusing to modify existing lists"
-        )
-
-    account_lists = gateway.all_lists()
-    existing_lists = [lst for lst in account_lists if lst.name.startswith(NAME_PREFIX)]
-    extra_lists = len(account_lists) - len(existing_lists)
-    logger.debug("CFPiHole lists in Cloudflare: %s%s", CustomFormatter.YELLOW, len(existing_lists))
-    logger.debug("Additional lists in Cloudflare: %s%s", CustomFormatter.YELLOW, extra_lists)
-
-    sync_tld_policy(gateway, tld_set)
-    sync_domain_policy(gateway, all_domains, existing_lists, extra_lists)
+    cf.create_domain_rule(session, base, NAME_PREFIX, list_ids)
 
 
 if __name__ == "__main__":
     try:
-        run()
+        main()
+    except KeyboardInterrupt:
+        sys.exit(130)
     except SystemExit:
         raise
-    except KeyboardInterrupt:
-        logger.warning("Interrupted by user")
-        sys.exit(130)
     except CloudflareAPIError as exc:
-        logger.critical("Cloudflare API error: %s", exc)
-        sys.exit(64)  # exit code the GitHub Actions workflow watches for to trigger a retry
-    except Exception:
-        logger.critical("Fatal error", exc_info=True)
+        log.critical("Cloudflare API error: %s", exc)
+        sys.exit(64)  # signals GitHub Actions to retry
+    except Exception as exc:
+        log.critical("Fatal error: %s", exc, exc_info=True)
         sys.exit(1)
