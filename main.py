@@ -35,7 +35,7 @@ class ColorFormatter(logging.Formatter):
         return super().format(record)
 
 handler = logging.StreamHandler()
-handler.setFormatter(ColorFormatter("%(levelname)s %(message)s"))
+handler.setFormatter(ColorFormatter("%(message)s"))
 logging.basicConfig(level=logging.INFO, handlers=[handler])
 log = logging.getLogger("cfpihole")
 
