@@ -178,7 +178,7 @@ def main():
         return
 
     if len(all_domains) == existing_total:
-        log.info("Domain count unchanged (%s) — nothing to do", v(existing_total))
+        log.warning("Domain count unchanged, stopping: %s", v(existing_total))
         return
 
     chunks = [
