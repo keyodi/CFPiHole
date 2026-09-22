@@ -26,8 +26,8 @@ logger = CustomFormatter.configure_logger("main")
 
 def chunk_list(items: list[str], chunk_size: int) -> Iterator[list[str]]:
     """Yield successive chunks of size chunk_size from items."""
-    for i in range(0, len(items), chunk_size):
-        yield items[i : i + chunk_size]
+    for start in range(0, len(items), chunk_size):
+        yield items[start : start + chunk_size]
 
 
 def sync_tld_policy(gateway: CloudflareGateway, tld_set: set[str]) -> None:
@@ -50,11 +50,11 @@ def sync_domain_policy(
     if not domains:
         logger.warning("No domains to block, removing existing lists/policy")
         gateway.delete_policy(NAME_PREFIX)
-        for lst in existing_lists:
-            gateway.delete_list(lst)
+        for cf_list in existing_lists:
+            gateway.delete_list(cf_list)
         return
 
-    existing_total = sum(lst.count for lst in existing_lists)
+    existing_total = sum(cf_list.count for cf_list in existing_lists)
     if len(domains) == existing_total:
         logger.warning("Domain count unchanged (%s), stopping", existing_total)
         return
@@ -69,27 +69,28 @@ def sync_domain_policy(
 
     gateway.delete_policy(NAME_PREFIX)
     logger.info("%sDeleting lists, please wait", CustomFormatter.YELLOW)
-    for lst in existing_lists:
-        gateway.delete_list(lst)
+    for cf_list in existing_lists:
+        gateway.delete_list(cf_list)
 
     logger.info("%sCreating lists, please wait", CustomFormatter.YELLOW)
     list_ids = [
-        gateway.create_list(f"{NAME_PREFIX} {i}", batch).id
-        for i, batch in enumerate(chunk_list(sorted(domains), CHUNK_SIZE), 1)
+        gateway.create_list(f"{NAME_PREFIX} {index}", batch).id
+        for index, batch in enumerate(chunk_list(sorted(domains), CHUNK_SIZE), 1)
     ]
     gateway.create_domain_policy(NAME_PREFIX, list_ids)
 
 
 def run() -> None:
-    CF_API_TOKEN = os.getenv("CF_API_TOKEN")
-    CF_IDENTIFIER = os.getenv("CF_IDENTIFIER")
-    if not CF_API_TOKEN:
+    cf_api_token = os.getenv("CF_API_TOKEN")
+    cf_identifier = os.getenv("CF_IDENTIFIER")
+
+    if not cf_api_token:
         raise SystemExit("Missing CF_API_TOKEN environment variable")
-    if not CF_IDENTIFIER:
+    if not cf_identifier:
         raise SystemExit("Missing CF_IDENTIFIER environment variable")
 
     config = load_config(CONFIG_FILE)
-    gateway = CloudflareGateway(account_id=CF_IDENTIFIER, api_token=CF_API_TOKEN)
+    gateway = CloudflareGateway(account_id=cf_identifier, api_token=cf_api_token)
 
     # Fetch the TLD source alongside the block-list sources in one batch of downloads.
     fetch_urls = dict(config.block_list_urls)
@@ -111,7 +112,7 @@ def run() -> None:
         if raw is not None:
             all_domains.update(sources.parse_domains(raw, tld_set))
 
-    domain_failures = [n for n in config.block_list_urls if n in fetched.failed]
+    domain_failures = [name for name in config.block_list_urls if name in fetched.failed]
     if config.block_list_urls and domain_failures and not all_domains:
         raise SystemExit(
             f"All domain-list downloads failed ({', '.join(domain_failures)}), "
@@ -119,7 +120,7 @@ def run() -> None:
         )
 
     account_lists = gateway.all_lists()
-    existing_lists = [lst for lst in account_lists if lst.name.startswith(NAME_PREFIX)]
+    existing_lists = [cf_list for cf_list in account_lists if cf_list.name.startswith(NAME_PREFIX)]
     extra_lists = len(account_lists) - len(existing_lists)
     logger.debug("CFPiHole lists in Cloudflare: %s%s", CustomFormatter.YELLOW, len(existing_lists))
     logger.debug("Additional lists in Cloudflare: %s%s", CustomFormatter.YELLOW, extra_lists)

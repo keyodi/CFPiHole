@@ -14,7 +14,9 @@ class Config:
 def _validate_urls(section_name: str, urls: dict[str, str]) -> None:
     for key, url in urls.items():
         if not url.startswith("https://"):
-            raise SystemExit(f"Invalid URL for [{section_name}] '{key}': must use https:// ({url})")
+            raise SystemExit(
+                f"Invalid URL for [{section_name}] '{key}': must use https:// ({url})"
+            )
 
 
 def load_config(path: str) -> Config:
@@ -26,9 +28,11 @@ def load_config(path: str) -> Config:
     try:
         parser.read(path)
     except configparser.Error as exc:
-        raise SystemExit(f"Failed to parse {path}: {exc}")
+        raise SystemExit(f"Failed to parse {path}: {exc}") from exc
 
-    block_urls = dict(parser.items("BlockLists")) if parser.has_section("BlockLists") else {}
+    block_urls = (
+        dict(parser.items("BlockLists")) if parser.has_section("BlockLists") else {}
+    )
     tld_urls = dict(parser.items("TLDList")) if parser.has_section("TLDList") else {}
 
     if not block_urls and not tld_urls:
@@ -40,4 +44,7 @@ def load_config(path: str) -> Config:
     if len(tld_urls) > 1:
         raise SystemExit("Only one URL is supported in [TLDList]")
 
-    return Config(block_list_urls=block_urls, tld_list_url=next(iter(tld_urls.values()), None))
+    return Config(
+        block_list_urls=block_urls,
+        tld_list_url=next(iter(tld_urls.values()), None),
+    )

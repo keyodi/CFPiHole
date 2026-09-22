@@ -58,16 +58,19 @@ class CloudflareGateway:
     def all_lists(self) -> list[CFList]:
         """Retrieve every list on the account."""
         data = self._request("GET", "lists") or []
-        return [CFList(id=d["id"], name=d["name"], count=d.get("count", 0)) for d in data]
+        return [
+            CFList(id=item["id"], name=item["name"], count=item.get("count", 0))
+            for item in data
+        ]
 
     def lists(self, name_prefix: str) -> list[CFList]:
         """Retrieve lists whose name starts with name_prefix."""
-        return [lst for lst in self.all_lists() if lst.name.startswith(name_prefix)]
+        return [cf_list for cf_list in self.all_lists() if cf_list.name.startswith(name_prefix)]
 
     def policy(self, name_prefix: str) -> CFPolicy | None:
         """Retrieve the single policy matching name_prefix, or None."""
         data = self._request("GET", "rules") or []
-        matches = [d for d in data if d.get("name", "").startswith(name_prefix)]
+        matches = [item for item in data if item.get("name", "").startswith(name_prefix)]
         if not matches:
             return None
         if len(matches) > 1:
@@ -103,7 +106,8 @@ class CloudflareGateway:
         if not list_ids:
             logger.warning("No list IDs provided, skipping policy creation: %s", name)
             return
-        traffic = " or ".join(f"any(dns.domains[*] in ${lid})" for lid in list_ids)
+
+        traffic = " or ".join(f"any(dns.domains[*] in ${list_id})" for list_id in list_ids)
         self._create_rule(name, traffic, block_page_enabled=False)
 
     def create_tld_policy(self, name: str, tlds: list[str]) -> None:

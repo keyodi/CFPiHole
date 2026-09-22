@@ -21,7 +21,7 @@ class CustomFormatter(logging.Formatter):
         super().__init__(fmt)
 
     def format(self, record: logging.LogRecord) -> str:
-        """Format a LogRecord and wrap the rendered line in an ANSI color code."""
+        """Format a LogRecord and wrap the rendered line in ANSI color codes."""
         color = self.COLORS.get(record.levelno, self.RESET)
         formatted = super().format(record)
         return f"{color}{formatted}{self.RESET}"
@@ -31,7 +31,6 @@ class CustomFormatter(logging.Formatter):
         """Create and return a named logger with a colored StreamHandler."""
         logger = logging.getLogger(name)
 
-        # Avoid adding duplicate handlers to the same logger.
         if logger.handlers:
             return logger
 

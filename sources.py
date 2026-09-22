@@ -18,12 +18,13 @@ MAX_DOWNLOAD_WORKERS = 32
 @dataclass(frozen=True)
 class FetchResult:
     """Result of fetching a set of named URLs."""
+
     content: dict[str, bytes] = field(default_factory=dict)
     failed: list[str] = field(default_factory=list)
 
 
 def fetch_all(urls: dict[str, str]) -> FetchResult:
-    """Download all URLs concurrently. Per-URL failures are recorded, not raised."""
+    """Download all URLs concurrently; per-URL failures are recorded, not raised."""
     workers = max(1, min(len(urls), MAX_DOWNLOAD_WORKERS))
     session = requests.Session()
     session.mount("https://", HTTPAdapter(pool_maxsize=workers, pool_connections=workers))
@@ -40,8 +41,9 @@ def fetch_all(urls: dict[str, str]) -> FetchResult:
 
     content: dict[str, bytes] = {}
     failed: list[str] = []
-    with ThreadPoolExecutor(max_workers=workers) as ex:
-        for name, data in ex.map(lambda item: _fetch(*item), urls.items()):
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        for name, data in executor.map(lambda item: _fetch(*item), urls.items()):
             if data is None:
                 failed.append(name)
             else:
@@ -53,23 +55,29 @@ def fetch_all(urls: dict[str, str]) -> FetchResult:
 def _lines(raw: bytes) -> list[str]:
     """Return non-empty, non-comment lines from raw file bytes."""
     text = raw.decode("utf-8", errors="ignore")
-    return [s for line in text.splitlines() if (s := line.strip()) and s[0] not in COMMENT_CHARS]
+    lines: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped and stripped[0] not in COMMENT_CHARS:
+            lines.append(stripped)
+    return lines
 
 
 def parse_tlds(raw: bytes) -> set[str]:
-    """Skip comment lines, strip characters other than alphanumerics, hyphens, and dots."""
-    tlds = set()
+    """Skip comment lines and strip characters other than alphanumerics, hyphens, and dots."""
+    tlds: set[str] = set()
     for line in _lines(raw):
         allowed_chars = "".join(ch for ch in line if ch.isalnum() or ch in "-.")
         cleaned = allowed_chars.strip(".")
         if cleaned:
             tlds.add(cleaned)
+
     logger.debug("Parsed %s TLDs", len(tlds))
     return tlds
 
 
 def is_tld_blocked(domain: str, tld_set: set[str]) -> bool:
-    """Check if domain's TLD or second-level TLD is in the blocklist."""
+    """Check if a domain's TLD or second-level TLD is in the blocklist."""
     parts = domain.rsplit(".", 2)
     if len(parts) >= 2:
         if parts[-1] in tld_set:
@@ -83,8 +91,7 @@ def _is_hosts_format(lines: list[str]) -> bool:
     """Detect hosts format by sampling up to 30 lines rather than just the first."""
     sample = lines[:30]
     hosts_count = sum(
-        1 for line in sample
-        if line.split(None, 1)[0] in ("127.0.0.1", "0.0.0.0")
+        1 for line in sample if line.split(None, 1)[0] in ("127.0.0.1", "0.0.0.0")
     )
     return hosts_count > len(sample) / 2
 
@@ -108,4 +115,4 @@ def parse_domains(raw: bytes, tld_set: set[str]) -> set[str]:
             return None
         return domain
 
-    return {d for line in lines if (d := _extract(line)) is not None}
+    return {domain for line in lines if (domain := _extract(line)) is not None}
