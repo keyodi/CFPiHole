@@ -164,11 +164,12 @@ def main():
         cf.create_tld_rule(session, base, NAME_PREFIX_TLD, sorted(tld_set))
 
     # Sync domain lists and rule.
+    all_lists = cf.get_lists(session, base)
     existing_lists = [
-        item
-        for item in cf.get_lists(session, base)
+        item for item in all_lists
         if item["name"].startswith(NAME_PREFIX)
     ]
+
     existing_total = sum(item.get("count", 0) for item in existing_lists)
 
     if not all_domains:
@@ -181,13 +182,12 @@ def main():
         log.warning("Domain count unchanged, stopping: %s", v(existing_total))
         return
 
-    all_domains = list(all_domains)
+    all_domains = sorted(all_domains)
     chunks = [
         all_domains[index : index + CHUNK_SIZE]
         for index in range(0, len(all_domains), CHUNK_SIZE)
     ]
 
-    all_lists = cf.get_lists(session, base)
     extra_lists = len(all_lists) - len(existing_lists)
     if len(chunks) + extra_lists > MAX_LISTS:
         sys.exit(f"Would exceed {MAX_LISTS} list limit — use smaller block lists")
