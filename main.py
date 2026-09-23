@@ -198,8 +198,10 @@ def main():
     )
 
     cf.delete_rule(session, base, NAME_PREFIX)
+    log.info("Deleting lists, please wait")
     cf.delete_lists_by_prefix(session, base, NAME_PREFIX)
 
+    log.info("Creating lists, please wait")
     list_ids = [
         cf.create_list(session, base, f"{NAME_PREFIX} {index}", chunk)
         for index, chunk in enumerate(chunks, 1)
