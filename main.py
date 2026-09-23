@@ -182,7 +182,7 @@ def main():
         return
 
     chunks = [
-        sorted(all_domains)[index : index + CHUNK_SIZE]
+        all_domains[index : index + CHUNK_SIZE]
         for index in range(0, len(all_domains), CHUNK_SIZE)
     ]
 
