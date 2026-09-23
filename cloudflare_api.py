@@ -48,7 +48,6 @@ def delete_lists_by_prefix(session, base, prefix):
     for item in get_lists(session, base):
         if item["name"].startswith(prefix):
             _request(session, "DELETE", f"{base}/lists/{item['id']}")
-            log.info("Deleting lists, please wait")
             log.debug("Deleted list: %s", v(item["name"]))
 
 
@@ -64,7 +63,6 @@ def create_list(session, base, name, domains):
             "items": [{"value": domain} for domain in domains],
         },
     )
-    log.info("Creating lists, please wait")
     log.debug("Created list: %s (%s domains)", v(name), v(len(domains)))
     return result["id"]
 
