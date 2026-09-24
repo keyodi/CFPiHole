@@ -2,6 +2,7 @@ import configparser
 import logging
 import os
 import sys
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
@@ -62,6 +63,13 @@ def download(url):
     except requests.RequestException as exc:
         log.error("Failed downloading %s: %s", v(url), v(exc))
         return None
+
+
+def download_all(urls):
+    """Download URLs concurrently and return {url: bytes or None}."""
+    workers = max(1, min(len(urls), 16))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        return dict(zip(urls, pool.map(download, urls), strict=True))
 
 
 def _clean_lines(raw):
@@ -138,18 +146,24 @@ def main():
 
     block_urls, tld_url = load_config()
 
-    # Download and parse TLD list.
+    # Download the TLD list and block lists concurrently.
+    urls = list(block_urls.values())
+    if tld_url:
+        urls.append(tld_url)
+    downloads = download_all(urls)
+
+    # Parse TLD list.
     tld_set = set()
     if tld_url:
-        raw = download(tld_url)
+        raw = downloads[tld_url]
         if raw:
             tld_set = parse_tlds(raw)
 
-    # Download and parse block lists.
+    # Parse block lists.
     all_domains = set()
     any_failed = False
     for name, url in block_urls.items():
-        raw = download(url)
+        raw = downloads[url]
         if raw is None:
             any_failed = True
         else:
