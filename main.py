@@ -58,7 +58,7 @@ def download(url):
         response = requests.get(url, timeout=15, allow_redirects=True)
         response.raise_for_status()
         size_kb = len(response.content) / 1024
-        log.info("Downloaded: %s %s KB", v(url), v(f"{size_kb:.0f}"))
+        log.info("Downloaded: %s %s", v(url), v(f"{size_kb:.0f} KB"))
         return response.content
     except requests.RequestException as exc:
         log.error("Failed downloading %s: %s", v(url), v(exc))
