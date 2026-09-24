@@ -1,3 +1,4 @@
+import copy
 import logging
 
 
@@ -22,7 +23,10 @@ class ColorFormatter(logging.Formatter):
 
     def format(self, record):
         color = COLORS.get(record.levelno, RESET)
-        record.msg = f"{color}{record.msg}{RESET}"
+        record = copy.copy(record)
+        message = record.getMessage().replace(RESET, RESET + color)
+        record.msg = f"{color}{message}{RESET}"
+        record.args = None
         return super().format(record)
 
 
