@@ -5,6 +5,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 
 import requests
+from dotenv import load_dotenv
 
 import cloudflare_api as cf
 import logger
@@ -18,6 +19,7 @@ MAX_LISTS = 300  # Cloudflare account list limit
 COMMENT_CHARS = set("!#;/[")
 HOSTS_IPS = ("127.0.0.1", "0.0.0.0")
 
+load_dotenv()
 logger.setup()
 log = logging.getLogger("cfpihole")
 
