@@ -6,7 +6,7 @@ Simple Python script (runnable from GitHub Actions) that imports Pi-hole domain 
 
 ## Requirements
 
-- Python 3.8+
+- Python 3.12+
 - pip packages: requests (the workflow installs needed deps)
 
 ## Usage
