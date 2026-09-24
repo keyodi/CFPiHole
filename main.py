@@ -107,16 +107,19 @@ def parse_domains(raw, tld_set):
         return set()
 
     sample = lines[:30]
-    is_hosts = sum(
-        1 for line in sample if line.split()[0] in HOSTS_IPS
-    ) > len(sample) / 2
+    is_hosts = (
+        sum(1 for line in sample if line.split()[0] in HOSTS_IPS)
+        > len(sample) / 2
+    )
 
     domains = set()
     for line in lines:
         parts = line.split()
         domain = (
-            parts[1] if is_hosts and len(parts) > 1 else parts[0]
-        ).lower().rstrip(".")
+            (parts[1] if is_hosts and len(parts) > 1 else parts[0])
+            .lower()
+            .rstrip(".")
+        )
         if is_hosts and "localhost" in domain:
             continue
         if tld_set and _tld_blocked(domain, tld_set):
@@ -176,8 +179,7 @@ def main():
     # Sync domain lists and rule.
     all_lists = cf.get_lists(session, base)
     existing_lists = [
-        item for item in all_lists
-        if item["name"].startswith(NAME_PREFIX)
+        item for item in all_lists if item["name"].startswith(NAME_PREFIX)
     ]
 
     existing_total = sum(item.get("count", 0) for item in existing_lists)
