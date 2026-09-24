@@ -85,9 +85,11 @@ def _clean_lines(raw):
 def parse_tlds(raw):
     tlds = set()
     for line in _clean_lines(raw):
-        cleaned = "".join(
-            char for char in line if char.isalnum() or char in "-."
-        ).strip(".")
+        cleaned = (
+            "".join(char for char in line if char.isalnum() or char in "-.")
+            .strip(".")
+            .lower()
+        )
         if cleaned:
             tlds.add(cleaned)
     return tlds
