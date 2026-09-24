@@ -16,6 +16,7 @@ NAME_PREFIX_TLD = "[CFPihole] Block TLDs"
 CHUNK_SIZE = 1000  # Cloudflare list size limit
 MAX_LISTS = 300  # Cloudflare account list limit
 COMMENT_CHARS = set("!#;/[")
+HOSTS_IPS = ("127.0.0.1", "0.0.0.0")
 
 logger.setup()
 log = logging.getLogger("cfpihole")
@@ -110,9 +111,7 @@ def parse_domains(raw, tld_set):
 
     sample = lines[:30]
     is_hosts = sum(
-        1
-        for line in sample
-        if line.startswith(("127.0.0.1 ", "0.0.0.0 "))
+        1 for line in sample if line.split()[0] in HOSTS_IPS
     ) > len(sample) / 2
 
     domains = set()
