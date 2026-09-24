@@ -162,7 +162,7 @@ def main():
     # Parse block lists.
     all_domains = set()
     any_failed = False
-    for name, url in block_urls.items():
+    for url in block_urls.values():
         raw = downloads[url]
         if raw is None:
             any_failed = True
@@ -204,7 +204,9 @@ def main():
 
     extra_lists = len(all_lists) - len(existing_lists)
     if len(chunks) + extra_lists > MAX_LISTS:
-        sys.exit(f"Would exceed {MAX_LISTS} list limit — use smaller block lists")
+        sys.exit(
+            f"Would exceed {MAX_LISTS} list limit — use smaller block lists"
+        )
 
     log.info(
         "Unique domains: %s  →  %s lists",
