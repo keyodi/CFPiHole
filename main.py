@@ -14,8 +14,12 @@ from logger import v
 
 NAME_PREFIX = "[CFPihole] Block Ads"
 NAME_PREFIX_TLD = "[CFPihole] Block TLDs"
-CHUNK_SIZE = 1000  # Cloudflare list size limit
-MAX_LISTS = 300  # Cloudflare account list limit
+CONFIG_FILE = "config.ini"
+
+# Cloudflare Gateway API limits
+MAX_LISTS = 300
+CHUNK_SIZE = 1000
+
 COMMENT_CHARS = set("!#;/[")
 HOSTS_IPS = ("127.0.0.1", "0.0.0.0")
 
@@ -24,12 +28,12 @@ logger.setup()
 log = logging.getLogger("cfpihole")
 
 
-def load_config(path="config.ini"):
-    if not os.path.exists(path):
-        sys.exit(f"Config file not found: {path}")
+def load_config():
+    if not os.path.exists(CONFIG_FILE):
+        sys.exit(f"Config file not found: {CONFIG_FILE}")
 
     parser = configparser.ConfigParser(interpolation=None)
-    parser.read(path)
+    parser.read(CONFIG_FILE)
     block_urls = (
         dict(parser.items("BlockLists"))
         if parser.has_section("BlockLists")
