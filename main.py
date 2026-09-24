@@ -196,7 +196,7 @@ def main():
         log.warning("Domain count unchanged, stopping: %s", v(existing_total))
         return
 
-    all_domains = list(all_domains)
+    all_domains = sorted(all_domains)
     chunks = [
         all_domains[index : index + CHUNK_SIZE]
         for index in range(0, len(all_domains), CHUNK_SIZE)
