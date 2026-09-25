@@ -2,6 +2,8 @@
 # Syntax: Domains (without subdomains)
 # Number of latin TLDs: 294 - punycode TLDs: 153
 #
+eu
+gr
 actor
 africa
 agency
