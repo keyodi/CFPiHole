@@ -31,18 +31,44 @@ def _request(session, method, url, json=None):
     return data.get("result", [])
 
 
-def _get_paginated(session, base, path, per_page=50):
+def _get_paginated(session, base, path, per_page=50, max_pages=100):
     """Fetch every page of a Cloudflare Gateway list endpoint."""
     results = []
     page = 1
-    while True:
-        chunk = _request(
-            session, "GET", f"{base}/{path}?page={page}&per_page={per_page}"
-        )
+    while page <= max_pages:
+        try:
+            response = session.get(
+                f"{base}/{path}",
+                params={"page": page, "per_page": per_page},
+                timeout=15,
+            )
+            response.raise_for_status()
+            data = response.json()
+        except requests.RequestException as exc:
+            raise CloudflareAPIError(f"Request failed: {exc}") from exc
+        except ValueError as exc:
+            raise CloudflareAPIError(f"Invalid JSON response: {exc}") from exc
+
+        if not data.get("success", True):
+            raise CloudflareAPIError(
+                f"Cloudflare API error: {data.get('errors')}"
+            )
+
+        chunk = data.get("result") or []
         results.extend(chunk)
-        if len(chunk) < per_page:
+
+        total = (data.get("result_info") or {}).get("total_count")
+        done = (
+            not chunk
+            or len(chunk) < per_page
+            or (total is not None and len(results) >= total)
+        )
+        if done:
             break
         page += 1
+    else:
+        log.warning("Stopped paginating %s after %s pages", path, max_pages)
+
     return results
 
 
