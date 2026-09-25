@@ -1,5 +1,4 @@
 import logging
-from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
@@ -99,7 +98,7 @@ def delete_lists_by_prefix(session, base, prefix, lists=None):
     for item in lists if lists is not None else get_lists(session, base):
         if item["name"].startswith(prefix):
             _request(session, "DELETE", f"{base}/lists/{item['id']}")
-            log.info("Deleted list: %s", v(item["name"]))
+            log.debug("Deleted list: %s", v(item["name"]))
 
 
 def create_list(session, base, name, domains):
@@ -114,22 +113,8 @@ def create_list(session, base, name, domains):
             "items": [{"value": domain} for domain in domains],
         },
     )
-    log.info("Created list: %s (%s domains)", v(name), v(len(domains)))
+    log.debug("Created list: %s (%s domains)", v(name), v(len(domains)))
     return result["id"]
-
-
-def create_lists(session, base, name_prefix, chunks):
-    """Create one list per chunk concurrently, preserving chunk order."""
-    workers = max(1, min(len(chunks), 2))
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        return list(
-            pool.map(
-                lambda item: create_list(
-                    session, base, f"{name_prefix} {item[0]}", item[1]
-                ),
-                enumerate(chunks, 1),
-            )
-        )
 
 
 def create_domain_rule(session, base, name, list_ids):
