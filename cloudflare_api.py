@@ -120,7 +120,7 @@ def create_list(session, base, name, domains):
 
 def create_lists(session, base, name_prefix, chunks):
     """Create one list per chunk concurrently, preserving chunk order."""
-    workers = max(1, min(len(chunks), 8))
+    workers = max(1, min(len(chunks), 2))
     with ThreadPoolExecutor(max_workers=workers) as pool:
         return list(
             pool.map(
