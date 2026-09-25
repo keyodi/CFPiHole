@@ -34,6 +34,7 @@ def _request(session, method, url, json=None):
 def _get_paginated(session, base, path, per_page=50, max_pages=100):
     """Fetch every page of a Cloudflare Gateway list endpoint."""
     results = []
+    seen_ids = set()
     page = 1
     while page <= max_pages:
         try:
@@ -55,13 +56,19 @@ def _get_paginated(session, base, path, per_page=50, max_pages=100):
             )
 
         chunk = data.get("result") or []
-        results.extend(chunk)
+        new_items = [item for item in chunk if item.get("id") not in seen_ids]
+
+        if not new_items:
+            # Empty page, or the same items came back again — either way
+            # there is nothing more to collect.
+            break
+
+        results.extend(new_items)
+        seen_ids.update(item.get("id") for item in new_items)
 
         total = (data.get("result_info") or {}).get("total_count")
-        done = (
-            not chunk
-            or len(chunk) < per_page
-            or (total is not None and len(results) >= total)
+        done = len(chunk) < per_page or (
+            total is not None and len(results) >= total
         )
         if done:
             break
