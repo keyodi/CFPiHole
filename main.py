@@ -61,6 +61,9 @@ def download(url):
     try:
         response = requests.get(url, timeout=15, allow_redirects=True)
         response.raise_for_status()
+        if not response.url.startswith("https://"):
+            log.error("Refused non-HTTPS redirect for %s", v(url))
+            return None
         size_kb = len(response.content) / 1024
         log.info("Downloaded: %s %s", v(url), v(f"{size_kb:.0f} KB"))
         return response.content
@@ -101,12 +104,9 @@ def parse_tlds(raw):
 
 def _tld_blocked(domain, tld_set):
     parts = domain.rsplit(".", 2)
-    return (
-        len(parts) >= 2
-        and parts[-1] in tld_set
-        or len(parts) >= 3
-        and f"{parts[-2]}.{parts[-1]}" in tld_set
-    )
+    single = len(parts) >= 2 and parts[-1] in tld_set
+    double = len(parts) >= 3 and f"{parts[-2]}.{parts[-1]}" in tld_set
+    return single or double
 
 
 def parse_domains(raw, tld_set):
@@ -123,11 +123,12 @@ def parse_domains(raw, tld_set):
     domains = set()
     for line in lines:
         parts = line.split()
-        domain = (
-            (parts[1] if is_hosts and len(parts) > 1 else parts[0])
-            .lower()
-            .rstrip(".")
-        )
+        if is_hosts:
+            if len(parts) < 2:
+                continue
+            domain = parts[1].lower().rstrip(".")
+        else:
+            domain = parts[0].lower().rstrip(".")
         if is_hosts and "localhost" in domain:
             continue
         if tld_set and _tld_blocked(domain, tld_set):
@@ -195,7 +196,7 @@ def main():
     if not all_domains:
         log.warning("No domains to block — removing existing lists/rule")
         cf.delete_rule(session, base, NAME_PREFIX)
-        cf.delete_lists_by_prefix(session, base, NAME_PREFIX)
+        cf.delete_lists_by_prefix(session, base, NAME_PREFIX, lists=all_lists)
         return
 
     if len(all_domains) == existing_total:
@@ -222,7 +223,7 @@ def main():
 
     cf.delete_rule(session, base, NAME_PREFIX)
     log.info("Deleting lists, please wait")
-    cf.delete_lists_by_prefix(session, base, NAME_PREFIX)
+    cf.delete_lists_by_prefix(session, base, NAME_PREFIX, lists=all_lists)
 
     log.info("Creating lists, please wait")
     list_ids = [
