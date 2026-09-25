@@ -1,4 +1,5 @@
 import logging
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
@@ -115,6 +116,20 @@ def create_list(session, base, name, domains):
     )
     log.debug("Created list: %s (%s domains)", v(name), v(len(domains)))
     return result["id"]
+
+
+def create_lists(session, base, name_prefix, chunks):
+    """Create one list per chunk concurrently, preserving chunk order."""
+    workers = max(1, min(len(chunks), 8))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        return list(
+            pool.map(
+                lambda item: create_list(
+                    session, base, f"{name_prefix} {item[0]}", item[1]
+                ),
+                enumerate(chunks, 1),
+            )
+        )
 
 
 def create_domain_rule(session, base, name, list_ids):
