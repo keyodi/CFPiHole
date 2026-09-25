@@ -226,7 +226,10 @@ def main():
     cf.delete_lists_by_prefix(session, base, NAME_PREFIX, lists=all_lists)
 
     log.info("Creating lists, please wait")
-    list_ids = cf.create_lists(session, base, NAME_PREFIX, chunks)
+    list_ids = [
+        cf.create_list(session, base, f"{NAME_PREFIX} {index}", chunk)
+        for index, chunk in enumerate(chunks, 1)
+    ]
 
     cf.create_domain_rule(session, base, NAME_PREFIX, list_ids)
 
