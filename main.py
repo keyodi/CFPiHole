@@ -3,6 +3,7 @@ import logging
 import os
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from typing import cast
 
 import requests
 from dotenv import load_dotenv
@@ -20,6 +21,8 @@ CONFIG_FILE = "config.ini"
 MAX_LISTS = 300
 CHUNK_SIZE = 1000
 
+MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
+
 COMMENT_CHARS = set("!#;/[")
 HOSTS_IPS = ("127.0.0.1", "0.0.0.0")
 
@@ -28,12 +31,17 @@ logger.setup()
 log = logging.getLogger("cfpihole")
 
 
-def load_config():
+def load_config() -> tuple[dict[str, str], str | None]:
+    """Read config.ini and return (block_urls, tld_url)."""
     if not os.path.exists(CONFIG_FILE):
         sys.exit(f"Config file not found: {CONFIG_FILE}")
 
     parser = configparser.ConfigParser(interpolation=None)
-    parser.read(CONFIG_FILE)
+    try:
+        parser.read(CONFIG_FILE)
+    except configparser.Error as exc:
+        sys.exit(f"Invalid config.ini: {exc}")
+
     block_urls = (
         dict(parser.items("BlockLists"))
         if parser.has_section("BlockLists")
@@ -56,30 +64,51 @@ def load_config():
     return block_urls, next(iter(tld_urls.values()), None)
 
 
-def download(url):
+def download(url: str) -> bytes | None:
     """Download a URL and return raw bytes, or None on failure."""
     try:
-        response = requests.get(url, timeout=15, allow_redirects=True)
+        response = requests.get(
+            url, timeout=15, allow_redirects=True, stream=True
+        )
         response.raise_for_status()
         if not response.url.startswith("https://"):
             log.error("Refused non-HTTPS redirect for %s", v(url))
             return None
-        size_kb = len(response.content) / 1024
+
+        content = cast(
+            bytes,
+            response.raw.read(MAX_DOWNLOAD_BYTES + 1, decode_content=True),
+        )
+        if len(content) > MAX_DOWNLOAD_BYTES:
+            log.error(
+                "Refused response over %s MB for %s",
+                v(MAX_DOWNLOAD_BYTES // (1024 * 1024)),
+                v(url),
+            )
+            return None
+
+        size_kb = len(content) / 1024
         log.info("Downloaded: %s %s", v(url), v(f"{size_kb:.0f} KB"))
-        return response.content
+        return content
     except requests.RequestException as exc:
         log.error("Failed downloading %s: %s", v(url), v(exc))
         return None
 
 
-def download_all(urls):
-    """Download URLs concurrently and return {url: bytes or None}."""
-    workers = max(1, min(len(urls), 16))
+def download_all(urls: list[str]) -> dict[str, bytes | None]:
+    """Download URLs concurrently and return {url: bytes or None}.
+
+    Duplicate URLs are only fetched once.
+    """
+    unique_urls = list(dict.fromkeys(urls))
+    workers = max(1, min(len(unique_urls), 16))
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        return dict(zip(urls, pool.map(download, urls), strict=True))
+        return dict(
+            zip(unique_urls, pool.map(download, unique_urls), strict=True)
+        )
 
 
-def _clean_lines(raw):
+def _clean_lines(raw: bytes) -> list[str]:
     """Return non-empty, non-comment lines from raw bytes."""
     text = raw.decode("utf-8", errors="ignore")
     return [
@@ -89,7 +118,7 @@ def _clean_lines(raw):
     ]
 
 
-def parse_tlds(raw):
+def parse_tlds(raw: bytes) -> set[str]:
     tlds = set()
     for line in _clean_lines(raw):
         cleaned = (
@@ -102,22 +131,24 @@ def parse_tlds(raw):
     return tlds
 
 
-def _tld_blocked(domain, tld_set):
+def _tld_blocked(domain: str, tld_set: set[str]) -> bool:
     parts = domain.rsplit(".", 2)
     single = len(parts) >= 2 and parts[-1] in tld_set
     double = len(parts) >= 3 and f"{parts[-2]}.{parts[-1]}" in tld_set
     return single or double
 
 
-def parse_domains(raw, tld_set):
+def parse_domains(raw: bytes, tld_set: set[str]) -> set[str]:
     lines = _clean_lines(raw)
     if not lines:
         return set()
 
-    sample = lines[:30]
+    sample_first_tokens = [
+        line.split(maxsplit=1)[0] for line in lines[:30]
+    ]
     is_hosts = (
-        sum(1 for line in sample if line.split()[0] in HOSTS_IPS)
-        > len(sample) / 2
+        sum(token in HOSTS_IPS for token in sample_first_tokens)
+        > len(sample_first_tokens) / 2
     )
 
     domains = set()
@@ -137,13 +168,15 @@ def parse_domains(raw, tld_set):
     return domains
 
 
-def main():
-    cf_api_token = os.getenv("CF_API_TOKEN") or sys.exit(
-        "Missing CF_API_TOKEN"
-    )
-    cf_identifier = os.getenv("CF_IDENTIFIER") or sys.exit(
-        "Missing CF_IDENTIFIER"
-    )
+def main() -> None:
+    cf_api_token = os.getenv("CF_API_TOKEN")
+    if not cf_api_token:
+        sys.exit("Missing CF_API_TOKEN")
+
+    cf_identifier = os.getenv("CF_IDENTIFIER")
+    if not cf_identifier:
+        sys.exit("Missing CF_IDENTIFIER")
+
     base = (
         "https://api.cloudflare.com/client/v4/accounts/"
         f"{cf_identifier}/gateway"
@@ -160,12 +193,24 @@ def main():
         urls.append(tld_url)
     downloads = download_all(urls)
 
+    failed_urls = [url for url in urls if downloads.get(url) is None]
+    if failed_urls:
+        log.warning(
+            "Skipping %s failed download(s): %s",
+            v(len(failed_urls)),
+            v(", ".join(failed_urls)),
+        )
+
     # Parse TLD list.
-    tld_set = set()
+    tld_set: set[str] = set()
     if tld_url:
         raw = downloads[tld_url]
         if raw:
             tld_set = parse_tlds(raw)
+        else:
+            log.warning(
+                "TLD list unavailable — no TLD-level blocking this run"
+            )
 
     # Parse block lists.
     all_domains = set()
@@ -191,22 +236,16 @@ def main():
         item for item in all_lists if item["name"].startswith(NAME_PREFIX)
     ]
 
-    existing_total = sum(item.get("count", 0) for item in existing_lists)
-
     if not all_domains:
         log.warning("No domains to block — removing existing lists/rule")
         cf.delete_rule(session, base, NAME_PREFIX)
         cf.delete_lists_by_prefix(session, base, NAME_PREFIX, lists=all_lists)
         return
 
-    if len(all_domains) == existing_total:
-        log.warning("Domain count unchanged, stopping: %s", v(existing_total))
-        return
-
-    all_domains = sorted(all_domains)
+    sorted_domains = sorted(all_domains)
     chunks = [
-        all_domains[index : index + CHUNK_SIZE]
-        for index in range(0, len(all_domains), CHUNK_SIZE)
+        sorted_domains[index : index + CHUNK_SIZE]
+        for index in range(0, len(sorted_domains), CHUNK_SIZE)
     ]
 
     extra_lists = len(all_lists) - len(existing_lists)
@@ -217,7 +256,7 @@ def main():
 
     log.info(
         "Unique domains: %s  →  %s lists",
-        v(len(all_domains)),
+        v(len(sorted_domains)),
         v(len(chunks)),
     )
 
