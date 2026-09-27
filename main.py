@@ -3,7 +3,8 @@ import logging
 import os
 import sys
 from concurrent.futures import ThreadPoolExecutor
-from typing import cast
+from itertools import islice
+from typing import Iterator
 
 import requests
 from dotenv import load_dotenv
@@ -75,10 +76,7 @@ def download(url: str) -> bytes | None:
             log.error("Refused non-HTTPS redirect for %s", v(url))
             return None
 
-        content = cast(
-            bytes,
-            response.raw.read(MAX_DOWNLOAD_BYTES + 1, decode_content=True),
-        )
+        content = response.raw.read(MAX_DOWNLOAD_BYTES + 1, decode_content=True)
         if len(content) > MAX_DOWNLOAD_BYTES:
             log.error(
                 "Refused response over %s MB for %s",
@@ -169,6 +167,16 @@ def parse_domains(raw: bytes, tld_set: set[str]) -> set[str]:
     return domains
 
 
+def chunk_generator(items: list[str], chunk_size: int) -> Iterator[list[str]]:
+    """Yield chunks of items lazily without materializing all at once."""
+    iterator = iter(items)
+    while True:
+        chunk = list(islice(iterator, chunk_size))
+        if not chunk:
+            break
+        yield chunk
+
+
 def main() -> None:
     cf_api_token = os.getenv("CF_API_TOKEN")
     if not cf_api_token:
@@ -246,10 +254,7 @@ def main() -> None:
         return
 
     sorted_domains = sorted(all_domains)
-    chunks = [
-        sorted_domains[index : index + CHUNK_SIZE]
-        for index in range(0, len(sorted_domains), CHUNK_SIZE)
-    ]
+    chunks = list(chunk_generator(sorted_domains, CHUNK_SIZE))
 
     extra_lists = len(all_lists) - len(existing_lists)
     if len(chunks) + extra_lists > MAX_LISTS:
