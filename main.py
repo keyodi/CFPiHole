@@ -88,7 +88,8 @@ def download(url: str) -> bytes | None:
             return None
 
         size_kb = len(content) / 1024
-        log.info("Downloaded: %s %s", v(url), v(f"{size_kb:.0f} KB"))
+        formatted_size = f"{size_kb:.0f} KB"
+        log.info("Downloaded: %s %s", v(url), v(formatted_size))
         return content
     except requests.RequestException as exc:
         log.error("Failed downloading %s: %s", v(url), v(exc))
