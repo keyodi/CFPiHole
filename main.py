@@ -224,7 +224,9 @@ def main() -> None:
             all_domains.update(parse_domains(raw, tld_set))
 
     if block_urls and any_failed and not all_domains:
-        sys.exit("All block-list downloads failed — not modifying Cloudflare")
+        sys.exit(
+            "All block-list downloads failed — not modifying Cloudflare"
+        )
 
     # Sync TLD rule.
     cf.delete_rule(session, base, NAME_PREFIX_TLD)
@@ -256,7 +258,7 @@ def main() -> None:
         )
 
     log.info(
-        "Unique domains: %s  →  %s lists",
+        "Unique domains: %s → %s lists",
         v(len(sorted_domains)),
         v(len(chunks)),
     )
