@@ -1,5 +1,5 @@
 import logging
-from typing import Any, cast
+from typing import Any
 
 import requests
 
@@ -8,6 +8,7 @@ from logger import v
 log = logging.getLogger("cfpihole")
 
 JsonDict = dict[str, Any]
+JsonResult = JsonDict | list[JsonDict]
 
 MAX_LIST_ITEMS = 1000
 
@@ -43,14 +44,20 @@ def _request(
     method: str,
     url: str,
     json: JsonDict | None = None,
-) -> Any:
+) -> JsonResult:
     """Make a single Cloudflare API request and return its 'result'."""
     try:
         response = session.request(method, url, json=json, timeout=15)
     except requests.RequestException as exc:
         raise CloudflareAPIError(f"Request failed: {exc}") from exc
     data = _parse_response(response)
-    return data.get("result", [])
+    result = data.get("result", [])
+    if not isinstance(result, (dict, list)):
+        raise CloudflareAPIError(
+            "Unexpected Cloudflare API result type: "
+            f"{type(result).__name__}"
+        )
+    return result
 
 
 def _get_paginated(
@@ -155,8 +162,13 @@ def create_list(
             "items": [{"value": domain} for domain in domains],
         },
     )
+    if not isinstance(result, dict) or not isinstance(result.get("id"), str):
+        raise CloudflareAPIError(
+            "Invalid list response: expected a string 'id'"
+        )
+    list_id = result["id"]
     log.debug("Created list: %s (%s domains)", v(name), v(len(domains)))
-    return cast(str, result["id"])
+    return list_id
 
 
 def create_domain_rule(
