@@ -35,13 +35,13 @@ log = logging.getLogger("cfpihole")
 def load_config() -> tuple[dict[str, str], str | None]:
     """Read config.ini and return (block_urls, tld_url)."""
     if not os.path.exists(CONFIG_FILE):
-        sys.exit(f"Config file not found: {CONFIG_FILE}")
+        sys.exit("Config file not found: %s" % CONFIG_FILE)
 
     parser = configparser.ConfigParser(interpolation=None)
     try:
         parser.read(CONFIG_FILE)
     except configparser.Error as exc:
-        sys.exit(f"Invalid config.ini: {exc}")
+        sys.exit("Invalid config.ini: %s" % exc)
 
     block_urls = (
         dict(parser.items("BlockLists"))
@@ -57,7 +57,7 @@ def load_config() -> tuple[dict[str, str], str | None]:
 
     for url in [*block_urls.values(), *tld_urls.values()]:
         if not url.startswith("https://"):
-            sys.exit(f"URL must use https://: {url}")
+            sys.exit("URL must use https://: %s" % url)
 
     if len(tld_urls) > 1:
         sys.exit("Only one URL is supported in [TLDList]")
@@ -259,7 +259,7 @@ def main() -> None:
     extra_lists = len(all_lists) - len(existing_lists)
     if len(chunks) + extra_lists > MAX_LISTS:
         sys.exit(
-            f"Would exceed {MAX_LISTS} list limit — use smaller block lists"
+            "Would exceed %s list limit — use smaller block lists" % MAX_LISTS
         )
 
     log.info(
