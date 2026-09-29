@@ -42,8 +42,8 @@ Example `config.ini`:
 
 ```ini
 [BlockLists]
-EasyList = https://easylist.to/easylist/easylist.txt
-AdGuardDNS = https://adguardteam.github.io/AdGuardSDNSFilter/Filters/filter.txt
+ProtoCore = https://cdn.jsdelivr.net/gh/ProtoConsent/data@latest/lists/domains/protoconsent_core_extended.txt
+HaGeziFake = https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/fake-onlydomains.txt
 
 [TLDList]
 TLD = https://example.com/tlds.txt
