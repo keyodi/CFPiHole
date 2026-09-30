@@ -27,8 +27,6 @@ MAX_DOWNLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
 COMMENT_CHARS = set("!#;/[")
 HOSTS_IPS = ("127.0.0.1", "0.0.0.0")
 
-load_dotenv()
-logger.setup()
 log = logging.getLogger("cfpihole")
 
 
@@ -128,8 +126,11 @@ def parse_tlds(raw: bytes) -> set[str]:
 
 
 def _tld_blocked(domain: str, tld_set: set[str]) -> bool:
+    """Return True if any proper dot-suffix of domain is in tld_set."""
     labels = domain.split(".")
-    return any(".".join(labels[i:]) in tld_set for i in range(1, len(labels)))
+    return any(
+        ".".join(labels[i:]) in tld_set for i in range(1, len(labels))
+    )
 
 
 def parse_domains(raw: bytes, tld_set: set[str]) -> set[str]:
@@ -173,6 +174,9 @@ def chunk_generator(items: list[str], chunk_size: int) -> Iterator[list[str]]:
 
 
 def main() -> None:
+    load_dotenv()
+    logger.setup()
+
     cf_api_token = os.getenv("CF_API_TOKEN")
     if not cf_api_token:
         sys.exit("Missing CF_API_TOKEN")
@@ -231,8 +235,11 @@ def main() -> None:
             "All block-list downloads failed — not modifying Cloudflare"
         )
 
+    # Fetch rules once and reuse the snapshot for every delete below.
+    all_rules = cf.get_rules(session, base)
+
     # Sync TLD rule.
-    cf.delete_rule(session, base, NAME_PREFIX_TLD)
+    cf.delete_rules_by_prefix(session, base, NAME_PREFIX_TLD, all_rules)
     if tld_set:
         cf.create_tld_rule(session, base, NAME_PREFIX_TLD, sorted(tld_set))
 
@@ -244,7 +251,7 @@ def main() -> None:
 
     if not all_domains:
         log.warning("No domains to block — removing existing lists/rule")
-        cf.delete_rule(session, base, NAME_PREFIX)
+        cf.delete_rules_by_prefix(session, base, NAME_PREFIX, all_rules)
         cf.delete_lists_by_prefix(session, base, NAME_PREFIX, lists=all_lists)
         return
 
@@ -263,7 +270,7 @@ def main() -> None:
         v(len(chunks)),
     )
 
-    cf.delete_rule(session, base, NAME_PREFIX)
+    cf.delete_rules_by_prefix(session, base, NAME_PREFIX, all_rules)
     log.info("Deleting lists, please wait")
     cf.delete_lists_by_prefix(session, base, NAME_PREFIX, lists=all_lists)
 
