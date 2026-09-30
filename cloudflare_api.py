@@ -119,12 +119,15 @@ def get_rules(session: requests.Session, base: str) -> list[JsonDict]:
     return _get_paginated(session, base, "rules")
 
 
-def delete_rule(
-    session: requests.Session, base: str, name_prefix: str
+def delete_rules_by_prefix(
+    session: requests.Session,
+    base: str,
+    prefix: str,
+    rules: list[JsonDict] | None = None,
 ) -> None:
-    """Delete every rule whose name starts with name_prefix."""
-    for rule in get_rules(session, base):
-        if rule.get("name", "").startswith(name_prefix):
+    """Delete every rule whose name starts with prefix."""
+    for rule in rules if rules is not None else get_rules(session, base):
+        if rule.get("name", "").startswith(prefix):
             _request(session, "DELETE", f"{base}/rules/{rule['id']}")
             log.info("Deleted rule: %s", v(rule["name"]))
 
@@ -137,7 +140,7 @@ def delete_lists_by_prefix(
 ) -> None:
     """Delete every list whose name starts with prefix."""
     for item in lists if lists is not None else get_lists(session, base):
-        if item["name"].startswith(prefix):
+        if item.get("name", "").startswith(prefix):
             _request(session, "DELETE", f"{base}/lists/{item['id']}")
             log.debug("Deleted list: %s", v(item["name"]))
 
