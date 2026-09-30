@@ -95,10 +95,7 @@ def download(url: str) -> bytes | None:
 
 
 def download_all(urls: list[str]) -> dict[str, bytes | None]:
-    """Download URLs concurrently and return {url: bytes or None}.
-
-    Duplicate URLs are only fetched once.
-    """
+    """Download URLs concurrently and return {url: bytes or None}."""
     unique_urls = list(dict.fromkeys(urls))
     workers = max(1, min(len(unique_urls), 16))
     with ThreadPoolExecutor(max_workers=workers) as pool:
@@ -131,10 +128,8 @@ def parse_tlds(raw: bytes) -> set[str]:
 
 
 def _tld_blocked(domain: str, tld_set: set[str]) -> bool:
-    parts = domain.rsplit(".", 2)
-    single = len(parts) >= 2 and parts[-1] in tld_set
-    double = len(parts) >= 3 and f"{parts[-2]}.{parts[-1]}" in tld_set
-    return single or double
+    labels = domain.split(".")
+    return any(".".join(labels[i:]) in tld_set for i in range(1, len(labels)))
 
 
 def parse_domains(raw: bytes, tld_set: set[str]) -> set[str]:
