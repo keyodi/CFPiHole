@@ -1,7 +1,6 @@
 import configparser
 import logging
 import os
-import sys
 from concurrent.futures import ThreadPoolExecutor
 from itertools import islice
 from typing import Iterator
@@ -33,13 +32,13 @@ log = logging.getLogger("cfpihole")
 def load_config() -> tuple[dict[str, str], str | None]:
     """Read config.ini and return (block_urls, tld_url)."""
     if not os.path.exists(CONFIG_FILE):
-        sys.exit("Config file not found: %s" % CONFIG_FILE)
+        raise SystemExit("Config file not found: %s" % CONFIG_FILE)
 
     parser = configparser.ConfigParser(interpolation=None)
     try:
         parser.read(CONFIG_FILE)
     except configparser.Error as exc:
-        sys.exit("Invalid config.ini: %s" % exc)
+        raise SystemExit("Invalid config.ini: %s" % exc)
 
     block_urls = (
         dict(parser.items("BlockLists"))
@@ -51,14 +50,14 @@ def load_config() -> tuple[dict[str, str], str | None]:
     )
 
     if not block_urls and not tld_urls:
-        sys.exit("config.ini has no [BlockLists] or [TLDList] entries")
+        raise SystemExit("config.ini has no [BlockLists] or [TLDList] entries")
 
     for url in [*block_urls.values(), *tld_urls.values()]:
         if not url.startswith("https://"):
-            sys.exit("URL must use https://: %s" % url)
+            raise SystemExit("URL must use https://: %s" % url)
 
     if len(tld_urls) > 1:
-        sys.exit("Only one URL is supported in [TLDList]")
+        raise SystemExit("Only one URL is supported in [TLDList]")
 
     return block_urls, next(iter(tld_urls.values()), None)
 
@@ -179,11 +178,11 @@ def main() -> None:
 
     cf_api_token = os.getenv("CF_API_TOKEN")
     if not cf_api_token:
-        sys.exit("Missing CF_API_TOKEN")
+        raise SystemExit("Missing CF_API_TOKEN")
 
     cf_identifier = os.getenv("CF_IDENTIFIER")
     if not cf_identifier:
-        sys.exit("Missing CF_IDENTIFIER")
+        raise SystemExit("Missing CF_IDENTIFIER")
 
     base = (
         "https://api.cloudflare.com/client/v4/accounts/"
@@ -231,7 +230,7 @@ def main() -> None:
             all_domains.update(parse_domains(raw, tld_set))
 
     if block_urls and any_failed and not all_domains:
-        sys.exit(
+        raise SystemExit(
             "All block-list downloads failed — not modifying Cloudflare"
         )
 
@@ -260,7 +259,7 @@ def main() -> None:
 
     extra_lists = len(all_lists) - len(existing_lists)
     if len(chunks) + extra_lists > MAX_LISTS:
-        sys.exit(
+        raise SystemExit(
             "Would exceed %s list limit — use smaller block lists" % MAX_LISTS
         )
 
@@ -287,12 +286,12 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        sys.exit(130)
+        raise SystemExit(130)
     except SystemExit:
         raise
     except CloudflareAPIError as exc:
         log.critical("Cloudflare API error: %s", exc)
-        sys.exit(64)  # signals GitHub Actions to retry
+        raise SystemExit(64)  # signals GitHub Actions to retry
     except Exception as exc:
         log.critical("Fatal error: %s", exc, exc_info=True)
-        sys.exit(1)
+        raise SystemExit(1)
