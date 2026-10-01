@@ -23,8 +23,8 @@ CHUNK_SIZE = 1000
 
 MAX_DOWNLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
 
-COMMENT_CHARS = set("!#;/[")
-HOSTS_IPS = ("127.0.0.1", "0.0.0.0")
+COMMENT_CHARS = frozenset("!#;/[")
+HOSTS_IPS_SET = frozenset(("127.0.0.1", "0.0.0.0"))
 
 log = logging.getLogger("cfpihole")
 
@@ -82,9 +82,7 @@ def download(url: str) -> bytes | None:
             )
             return None
 
-        size_kb = len(content) / 1024
-        formatted_size = f"{size_kb:.0f} KB"
-        log.info("Downloaded: %s %s", v(url), v(formatted_size))
+        log.info("Downloaded: %s %s", v(url), v(f"{len(content) / 1024:.0f} KB"))
         return content
     except requests.RequestException as exc:
         log.error("Failed downloading %s: %s", v(url), v(exc))
@@ -94,7 +92,10 @@ def download(url: str) -> bytes | None:
 def download_all(urls: list[str]) -> dict[str, bytes | None]:
     """Download URLs concurrently and return {url: bytes or None}."""
     unique_urls = list(dict.fromkeys(urls))
-    workers = max(1, min(len(unique_urls), 16))
+    if not unique_urls:
+        return {}
+
+    workers = min(len(unique_urls), 16)
     with ThreadPoolExecutor(max_workers=workers) as pool:
         return dict(
             zip(unique_urls, pool.map(download, unique_urls), strict=True)
@@ -103,22 +104,21 @@ def download_all(urls: list[str]) -> dict[str, bytes | None]:
 
 def _clean_lines(raw: bytes) -> list[str]:
     """Return non-empty, non-comment lines from raw bytes."""
-    text = raw.decode("utf-8", errors="ignore")
-    return [
-        stripped
-        for line in text.splitlines()
-        if (stripped := line.strip()) and stripped[0] not in COMMENT_CHARS
-    ]
+    lines: list[str] = []
+    for line in raw.decode("utf-8", errors="ignore").splitlines():
+        stripped = line.strip()
+        if stripped and stripped[0] not in COMMENT_CHARS:
+            lines.append(stripped)
+    return lines
 
 
 def parse_tlds(raw: bytes) -> set[str]:
-    tlds = set()
+    """Extract TLDs from raw bytes and return a normalized set."""
+    tlds: set[str] = set()
     for line in _clean_lines(raw):
-        cleaned = (
-            "".join(char for char in line if char.isalnum() or char in "-.")
-            .strip(".")
-            .lower()
-        )
+        cleaned = "".join(
+            char for char in line if char.isalnum() or char in "-."
+        ).strip(".").lower()
         if cleaned:
             tlds.add(cleaned)
     return tlds
@@ -128,37 +128,38 @@ def _tld_blocked(domain: str, tld_set: set[str]) -> bool:
     """Return True if any proper dot-suffix of domain is in tld_set."""
     labels = domain.split(".")
     return any(
-        ".".join(labels[i:]) in tld_set for i in range(1, len(labels))
+        ".".join(labels[index:]) in tld_set
+        for index in range(1, len(labels))
     )
 
 
 def parse_domains(raw: bytes, tld_set: set[str]) -> set[str]:
+    """Parse domains from raw bytes, filtering by TLD set."""
     lines = _clean_lines(raw)
     if not lines:
         return set()
 
-    sample_first_tokens = [
-        line.split(maxsplit=1)[0] for line in lines[:30]
-    ]
+    sample_first_tokens = [line.split(maxsplit=1)[0] for line in lines[:30]]
     is_hosts = (
-        sum(token in HOSTS_IPS for token in sample_first_tokens)
+        sum(token in HOSTS_IPS_SET for token in sample_first_tokens)
         > len(sample_first_tokens) / 2
     )
 
-    domains = set()
+    domains: set[str] = set()
     for line in lines:
         parts = line.split()
         if is_hosts:
             if len(parts) < 2:
                 continue
             domain = parts[1].lower().rstrip(".")
+            if "localhost" in domain:
+                continue
         else:
             domain = parts[0].lower().rstrip(".")
-        if is_hosts and "localhost" in domain:
-            continue
-        if tld_set and _tld_blocked(domain, tld_set):
-            continue
-        domains.add(domain)
+
+        if not tld_set or not _tld_blocked(domain, tld_set):
+            domains.add(domain)
+
     return domains
 
 
@@ -193,8 +194,6 @@ def main() -> None:
     session.headers["Authorization"] = f"Bearer {cf_api_token}"
 
     block_urls, tld_url = load_config()
-
-    # Download the TLD list and block lists concurrently.
     urls = list(block_urls.values())
     if tld_url:
         urls.append(tld_url)
@@ -208,19 +207,15 @@ def main() -> None:
             v(", ".join(failed_urls)),
         )
 
-    # Parse TLD list.
     tld_set: set[str] = set()
     if tld_url:
         raw = downloads[tld_url]
         if raw:
             tld_set = parse_tlds(raw)
         else:
-            log.warning(
-                "TLD list unavailable — no TLD-level blocking this run"
-            )
+            log.warning("TLD list unavailable — no TLD-level blocking this run")
 
-    # Parse block lists.
-    all_domains = set()
+    all_domains: set[str] = set()
     any_failed = False
     for url in block_urls.values():
         raw = downloads[url]
@@ -234,15 +229,11 @@ def main() -> None:
             "All block-list downloads failed — not modifying Cloudflare"
         )
 
-    # Fetch rules once and reuse the snapshot for every delete below.
     all_rules = cf.get_rules(session, base)
-
-    # Sync TLD rule.
     cf.delete_rules_by_prefix(session, base, NAME_PREFIX_TLD, all_rules)
     if tld_set:
         cf.create_tld_rule(session, base, NAME_PREFIX_TLD, sorted(tld_set))
 
-    # Sync domain lists and rule.
     all_lists = cf.get_lists(session, base)
     existing_lists = [
         item for item in all_lists if item["name"].startswith(NAME_PREFIX)
@@ -278,7 +269,6 @@ def main() -> None:
         cf.create_list(session, base, f"{NAME_PREFIX} {index}", chunk)
         for index, chunk in enumerate(chunks, 1)
     ]
-
     cf.create_domain_rule(session, base, NAME_PREFIX, list_ids)
 
 
@@ -291,7 +281,7 @@ if __name__ == "__main__":
         raise
     except CloudflareAPIError as exc:
         log.critical("Cloudflare API error: %s", exc)
-        raise SystemExit(64)  # signals GitHub Actions to retry
+        raise SystemExit(64)
     except Exception as exc:
         log.critical("Fatal error: %s", exc, exc_info=True)
         raise SystemExit(1)
