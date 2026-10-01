@@ -84,20 +84,16 @@ def _get_paginated(
 
         chunk = data.get("result") or []
         new_items = [item for item in chunk if item.get("id") not in seen_ids]
-
         if not new_items:
-            # Empty page, or the same items came back again — either way
-            # there is nothing more to collect.
             break
 
         results.extend(new_items)
         seen_ids.update(item.get("id") for item in new_items)
 
         total = (data.get("result_info") or {}).get("total_count")
-        done = len(chunk) < per_page or (
+        if len(chunk) < per_page or (
             total is not None and len(results) >= total
-        )
-        if done:
+        ):
             break
         page += 1
     else:
@@ -204,7 +200,7 @@ def create_tld_rule(
     session: requests.Session, base: str, name: str, tlds: list[str]
 ) -> None:
     """Create a DNS rule that blocks traffic to the given TLDs."""
-    regex = rf"[.](|{'|'.join(tlds)})$"
+    regex = rf"[.]({'|'.join(tlds)})$"
     traffic = f'any(dns.domains[*] matches "{regex}")'
     _request(
         session,
