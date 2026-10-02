@@ -5,7 +5,6 @@ from concurrent.futures import ThreadPoolExecutor
 
 import requests
 from dotenv import load_dotenv
-from requests.adapters import HTTPAdapter
 
 import cloudflare_api as cf
 import logger
@@ -22,8 +21,6 @@ CHUNK_SIZE = 1000
 
 MAX_DOWNLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
 
-# Concurrency for Cloudflare API calls (keep modest to respect rate limits)
-API_WORKERS = 8
 MAX_DOWNLOAD_WORKERS = 16
 
 COMMENT_CHARS = frozenset("!#;/[")
@@ -121,7 +118,11 @@ def parse_tlds(raw: bytes) -> set[str]:
 
 
 def _tld_blocked(domain: str, tld_set: set[str]) -> bool:
-    """Return True if any proper dot-suffix of domain is in tld_set."""
+    """Return True if any proper dot-suffix of domain is in tld_set.
+
+    Walks dots with str.find and slices, avoiding the split()/join() of every
+    suffix that the naive version performs per domain.
+    """
     find = domain.find
     idx = find(".")
     while idx != -1:
@@ -172,26 +173,6 @@ def _fetch_tlds(url: str) -> set[str] | None:
     return parse_tlds(raw) if raw else None
 
 
-def create_lists_parallel(
-    session: requests.Session, base: str, chunks: list[list[str]]
-) -> list[str]:
-    """Create all lists concurrently; returned ids keep chunk order."""
-    workers = max(1, min(API_WORKERS, len(chunks)))
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = [
-            pool.submit(
-                cf.create_list, session, base, f"{NAME_PREFIX} {index}", chunk
-            )
-            for index, chunk in enumerate(chunks, 1)
-        ]
-        try:
-            return [future.result() for future in futures]
-        except BaseException:
-            for future in futures:
-                future.cancel()
-            raise
-
-
 def main() -> None:
     load_dotenv()
     logger.setup()
@@ -211,9 +192,6 @@ def main() -> None:
 
     session = requests.Session()
     session.headers["Authorization"] = f"Bearer {cf_api_token}"
-    session.mount(
-        "https://", HTTPAdapter(pool_connections=4, pool_maxsize=API_WORKERS)
-    )
 
     block_urls, tld_url = load_config()
     urls = list(dict.fromkeys([*block_urls.values(), *([tld_url] if tld_url else [])]))
@@ -300,7 +278,10 @@ def main() -> None:
     cf.delete_lists_by_prefix(session, base, NAME_PREFIX, lists=all_lists)
 
     log.info("Creating lists, please wait")
-    list_ids = create_lists_parallel(session, base, chunks)
+    list_ids = [
+        cf.create_list(session, base, f"{NAME_PREFIX} {index}", chunk)
+        for index, chunk in enumerate(chunks, 1)
+    ]
     cf.create_domain_rule(session, base, NAME_PREFIX, list_ids)
 
 
