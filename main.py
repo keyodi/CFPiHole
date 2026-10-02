@@ -2,11 +2,10 @@ import configparser
 import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
-from itertools import islice
-from typing import Iterator
 
 import requests
 from dotenv import load_dotenv
+from requests.adapters import HTTPAdapter
 
 import cloudflare_api as cf
 import logger
@@ -22,6 +21,10 @@ MAX_LISTS = 300
 CHUNK_SIZE = 1000
 
 MAX_DOWNLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
+
+# Concurrency for Cloudflare API calls (keep modest to respect rate limits)
+API_WORKERS = 8
+MAX_DOWNLOAD_WORKERS = 16
 
 COMMENT_CHARS = frozenset("!#;/[")
 HOSTS_IPS_SET = frozenset(("127.0.0.1", "0.0.0.0"))
@@ -65,23 +68,26 @@ def load_config() -> tuple[dict[str, str], str | None]:
 def download(url: str) -> bytes | None:
     """Download a URL and return raw bytes, or None on failure."""
     try:
-        response = requests.get(
+        with requests.get(
             url, timeout=15, allow_redirects=True, stream=True
-        )
-        response.raise_for_status()
-        if not response.url.startswith("https://"):
-            log.error("Refused non-HTTPS redirect for %s", v(url))
-            return None
+        ) as response:
+            response.raise_for_status()
+            if not response.url.startswith("https://"):
+                log.error("Refused non-HTTPS redirect for %s", v(url))
+                return None
 
-        content = response.raw.read(MAX_DOWNLOAD_BYTES + 1, decode_content=True)
-        if len(content) > MAX_DOWNLOAD_BYTES:
-            log.error(
-                "Refused response over %s MB for %s",
-                v(MAX_DOWNLOAD_BYTES // (1024 * 1024)),
-                v(url),
-            )
-            return None
+            buf = bytearray()
+            for part in response.iter_content(chunk_size=65536):
+                buf += part
+                if len(buf) > MAX_DOWNLOAD_BYTES:
+                    log.error(
+                        "Refused response over %s MB for %s",
+                        v(MAX_DOWNLOAD_BYTES // (1024 * 1024)),
+                        v(url),
+                    )
+                    return None
 
+        content = bytes(buf)
         log.info("Downloaded: %s %s", v(url), v(f"{len(content) / 1024:.0f} KB"))
         return content
     except requests.RequestException as exc:
@@ -89,26 +95,16 @@ def download(url: str) -> bytes | None:
         return None
 
 
-def download_all(urls: list[str]) -> dict[str, bytes | None]:
-    """Download URLs concurrently and return {url: bytes or None}."""
-    unique_urls = list(dict.fromkeys(urls))
-    if not unique_urls:
-        return {}
-
-    workers = min(len(unique_urls), 16)
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        return dict(
-            zip(unique_urls, pool.map(download, unique_urls), strict=True)
-        )
-
-
 def _clean_lines(raw: bytes) -> list[str]:
-    """Return non-empty, non-comment lines from raw bytes."""
+    """Return non-empty, non-comment, lower-cased lines from raw bytes."""
+    text = raw.decode("utf-8", errors="ignore").lower()
+    comment_chars = COMMENT_CHARS
     lines: list[str] = []
-    for line in raw.decode("utf-8", errors="ignore").splitlines():
+    append = lines.append
+    for line in text.splitlines():
         stripped = line.strip()
-        if stripped and stripped[0] not in COMMENT_CHARS:
-            lines.append(stripped)
+        if stripped and stripped[0] not in comment_chars:
+            append(stripped)
     return lines
 
 
@@ -118,7 +114,7 @@ def parse_tlds(raw: bytes) -> set[str]:
     for line in _clean_lines(raw):
         cleaned = "".join(
             char for char in line if char.isalnum() or char in "-."
-        ).strip(".").lower()
+        ).strip(".")
         if cleaned:
             tlds.add(cleaned)
     return tlds
@@ -126,51 +122,74 @@ def parse_tlds(raw: bytes) -> set[str]:
 
 def _tld_blocked(domain: str, tld_set: set[str]) -> bool:
     """Return True if any proper dot-suffix of domain is in tld_set."""
-    labels = domain.split(".")
-    return any(
-        ".".join(labels[index:]) in tld_set
-        for index in range(1, len(labels))
-    )
+    find = domain.find
+    idx = find(".")
+    while idx != -1:
+        if domain[idx + 1:] in tld_set:
+            return True
+        idx = find(".", idx + 1)
+    return False
 
 
-def parse_domains(raw: bytes, tld_set: set[str]) -> set[str]:
-    """Parse domains from raw bytes, filtering by TLD set."""
+def parse_domains(raw: bytes) -> set[str]:
+    """Parse domains from raw bytes (TLD filtering is applied later, once,
+    on the de-duplicated union of all lists)."""
     lines = _clean_lines(raw)
     if not lines:
         return set()
 
-    sample_first_tokens = [line.split(maxsplit=1)[0] for line in lines[:30]]
+    sample_first_tokens = [line.split(None, 1)[0] for line in lines[:30]]
     is_hosts = (
         sum(token in HOSTS_IPS_SET for token in sample_first_tokens)
         > len(sample_first_tokens) / 2
     )
 
     domains: set[str] = set()
-    for line in lines:
-        parts = line.split()
-        if is_hosts:
+    add = domains.add
+    if is_hosts:
+        for line in lines:
+            parts = line.split(None, 2)
             if len(parts) < 2:
                 continue
-            domain = parts[1].lower().rstrip(".")
-            if "localhost" in domain:
-                continue
-        else:
-            domain = parts[0].lower().rstrip(".")
-
-        if not tld_set or not _tld_blocked(domain, tld_set):
-            domains.add(domain)
-
+            domain = parts[1].rstrip(".")
+            if "localhost" not in domain:
+                add(domain)
+    else:
+        for line in lines:
+            add(line.split(None, 1)[0].rstrip("."))
     return domains
 
 
-def chunk_generator(items: list[str], chunk_size: int) -> Iterator[list[str]]:
-    """Yield chunks of items lazily without materializing all at once."""
-    iterator = iter(items)
-    while True:
-        chunk = list(islice(iterator, chunk_size))
-        if not chunk:
-            break
-        yield chunk
+def _fetch_domains(url: str) -> set[str] | None:
+    """Download + parse in the worker thread so CPU parsing of one list
+    overlaps with the network wait of the others."""
+    raw = download(url)
+    return None if raw is None else parse_domains(raw)
+
+
+def _fetch_tlds(url: str) -> set[str] | None:
+    raw = download(url)
+    return parse_tlds(raw) if raw else None
+
+
+def create_lists_parallel(
+    session: requests.Session, base: str, chunks: list[list[str]]
+) -> list[str]:
+    """Create all lists concurrently; returned ids keep chunk order."""
+    workers = max(1, min(API_WORKERS, len(chunks)))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = [
+            pool.submit(
+                cf.create_list, session, base, f"{NAME_PREFIX} {index}", chunk
+            )
+            for index, chunk in enumerate(chunks, 1)
+        ]
+        try:
+            return [future.result() for future in futures]
+        except BaseException:
+            for future in futures:
+                future.cancel()
+            raise
 
 
 def main() -> None:
@@ -192,49 +211,62 @@ def main() -> None:
 
     session = requests.Session()
     session.headers["Authorization"] = f"Bearer {cf_api_token}"
+    session.mount(
+        "https://", HTTPAdapter(pool_connections=4, pool_maxsize=API_WORKERS)
+    )
 
     block_urls, tld_url = load_config()
-    urls = list(block_urls.values())
-    if tld_url:
-        urls.append(tld_url)
-    downloads = download_all(urls)
+    urls = list(dict.fromkeys([*block_urls.values(), *([tld_url] if tld_url else [])]))
 
-    failed_urls = [url for url in urls if downloads.get(url) is None]
-    if failed_urls:
-        log.warning(
-            "Skipping %s failed download(s): %s",
-            v(len(failed_urls)),
-            v(", ".join(failed_urls)),
-        )
+    workers = min(len(urls) + 2, MAX_DOWNLOAD_WORKERS)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        rules_future = pool.submit(cf.get_rules, session, base)
+        lists_future = pool.submit(cf.get_lists, session, base)
 
-    tld_set: set[str] = set()
-    if tld_url:
-        raw = downloads[tld_url]
-        if raw:
-            tld_set = parse_tlds(raw)
-        else:
+        domain_futures = {
+            url: pool.submit(_fetch_domains, url)
+            for url in dict.fromkeys(block_urls.values())
+        }
+        tld_future = pool.submit(_fetch_tlds, tld_url) if tld_url else None
+
+        results = {url: fut.result() for url, fut in domain_futures.items()}
+        tld_result = tld_future.result() if tld_future else None
+
+        failed_urls = [url for url, res in results.items() if res is None]
+        if tld_url and tld_result is None:
+            failed_urls.append(tld_url)
+        if failed_urls:
+            log.warning(
+                "Skipping %s failed download(s): %s",
+                v(len(failed_urls)),
+                v(", ".join(failed_urls)),
+            )
+
+        tld_set: set[str] = tld_result or set()
+        if tld_url and tld_result is None:
             log.warning("TLD list unavailable — no TLD-level blocking this run")
 
-    all_domains: set[str] = set()
-    any_failed = False
-    for url in block_urls.values():
-        raw = downloads[url]
-        if raw is None:
-            any_failed = True
-        else:
-            all_domains.update(parse_domains(raw, tld_set))
-
-    if block_urls and any_failed and not all_domains:
-        raise SystemExit(
-            "All block-list downloads failed — not modifying Cloudflare"
+        all_domains: set[str] = set().union(
+            *(res for res in results.values() if res is not None)
         )
+        any_failed = any(res is None for res in results.values())
+        if tld_set:
+            all_domains = {
+                d for d in all_domains if not _tld_blocked(d, tld_set)
+            }
 
-    all_rules = cf.get_rules(session, base)
+        if block_urls and any_failed and not all_domains:
+            raise SystemExit(
+                "All block-list downloads failed — not modifying Cloudflare"
+            )
+
+        all_rules = rules_future.result()
+        all_lists = lists_future.result()
+
     cf.delete_rules_by_prefix(session, base, NAME_PREFIX_TLD, all_rules)
     if tld_set:
         cf.create_tld_rule(session, base, NAME_PREFIX_TLD, sorted(tld_set))
 
-    all_lists = cf.get_lists(session, base)
     existing_lists = [
         item for item in all_lists if item["name"].startswith(NAME_PREFIX)
     ]
@@ -246,7 +278,10 @@ def main() -> None:
         return
 
     sorted_domains = sorted(all_domains)
-    chunks = list(chunk_generator(sorted_domains, CHUNK_SIZE))
+    chunks = [
+        sorted_domains[i:i + CHUNK_SIZE]
+        for i in range(0, len(sorted_domains), CHUNK_SIZE)
+    ]
 
     extra_lists = len(all_lists) - len(existing_lists)
     if len(chunks) + extra_lists > MAX_LISTS:
@@ -265,10 +300,7 @@ def main() -> None:
     cf.delete_lists_by_prefix(session, base, NAME_PREFIX, lists=all_lists)
 
     log.info("Creating lists, please wait")
-    list_ids = [
-        cf.create_list(session, base, f"{NAME_PREFIX} {index}", chunk)
-        for index, chunk in enumerate(chunks, 1)
-    ]
+    list_ids = create_lists_parallel(session, base, chunks)
     cf.create_domain_rule(session, base, NAME_PREFIX, list_ids)
 
 
