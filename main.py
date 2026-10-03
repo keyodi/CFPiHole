@@ -20,7 +20,6 @@ MAX_LISTS = 300
 CHUNK_SIZE = 1000
 
 MAX_DOWNLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
-
 MAX_DOWNLOAD_WORKERS = 16
 
 COMMENT_CHARS = frozenset("!#;/[")
@@ -31,33 +30,25 @@ log = logging.getLogger("cfpihole")
 
 def load_config() -> tuple[dict[str, str], str | None]:
     """Read config.ini and return (block_urls, tld_url)."""
-    if not os.path.exists(CONFIG_FILE):
-        raise SystemExit("Config file not found: %s" % CONFIG_FILE)
-
     parser = configparser.ConfigParser(interpolation=None)
     try:
-        parser.read(CONFIG_FILE)
+        if not parser.read(CONFIG_FILE):
+            raise SystemExit("Config file not found: %s" % CONFIG_FILE)
     except configparser.Error as exc:
         raise SystemExit("Invalid config.ini: %s" % exc)
 
-    block_urls = (
-        dict(parser.items("BlockLists"))
-        if parser.has_section("BlockLists")
-        else {}
-    )
-    tld_urls = (
-        dict(parser.items("TLDList")) if parser.has_section("TLDList") else {}
-    )
+    def section(name: str) -> dict[str, str]:
+        return dict(parser[name]) if name in parser else {}
+
+    block_urls, tld_urls = section("BlockLists"), section("TLDList")
 
     if not block_urls and not tld_urls:
         raise SystemExit("config.ini has no [BlockLists] or [TLDList] entries")
-
+    if len(tld_urls) > 1:
+        raise SystemExit("Only one URL is supported in [TLDList]")
     for url in [*block_urls.values(), *tld_urls.values()]:
         if not url.startswith("https://"):
             raise SystemExit("URL must use https://: %s" % url)
-
-    if len(tld_urls) > 1:
-        raise SystemExit("Only one URL is supported in [TLDList]")
 
     return block_urls, next(iter(tld_urls.values()), None)
 
@@ -94,15 +85,11 @@ def download(url: str) -> bytes | None:
 
 def _clean_lines(raw: bytes) -> list[str]:
     """Return non-empty, non-comment, lower-cased lines from raw bytes."""
-    text = raw.decode("utf-8", errors="ignore").lower()
-    comment_chars = COMMENT_CHARS
-    lines: list[str] = []
-    append = lines.append
-    for line in text.splitlines():
-        stripped = line.strip()
-        if stripped and stripped[0] not in comment_chars:
-            append(stripped)
-    return lines
+    stripped = (
+        line.strip()
+        for line in raw.decode("utf-8", errors="ignore").lower().splitlines()
+    )
+    return [line for line in stripped if line and line[0] not in COMMENT_CHARS]
 
 
 def parse_tlds(raw: bytes) -> set[str]:
@@ -118,17 +105,11 @@ def parse_tlds(raw: bytes) -> set[str]:
 
 
 def _tld_blocked(domain: str, tld_set: set[str]) -> bool:
-    """Return True if any proper dot-suffix of domain is in tld_set.
-
-    Walks dots with str.find and slices, avoiding the split()/join() of every
-    suffix that the naive version performs per domain.
-    """
-    find = domain.find
-    idx = find(".")
-    while idx != -1:
-        if domain[idx + 1:] in tld_set:
+    """Return True if any proper dot-suffix of domain is in tld_set."""
+    while "." in domain:
+        domain = domain.partition(".")[2]
+        if domain in tld_set:
             return True
-        idx = find(".", idx + 1)
     return False
 
 
@@ -139,38 +120,24 @@ def parse_domains(raw: bytes) -> set[str]:
     if not lines:
         return set()
 
-    sample_first_tokens = [line.split(None, 1)[0] for line in lines[:30]]
-    is_hosts = (
-        sum(token in HOSTS_IPS_SET for token in sample_first_tokens)
-        > len(sample_first_tokens) / 2
-    )
+    tokens = [line.split(None, 1)[0] for line in lines[:30]]
+    is_hosts = sum(token in HOSTS_IPS_SET for token in tokens) * 2 > len(tokens)
 
-    domains: set[str] = set()
-    add = domains.add
     if is_hosts:
-        for line in lines:
-            parts = line.split(None, 2)
-            if len(parts) < 2:
-                continue
-            domain = parts[1].rstrip(".")
-            if "localhost" not in domain:
-                add(domain)
-    else:
-        for line in lines:
-            add(line.split(None, 1)[0].rstrip("."))
-    return domains
+        parts = (line.split(None, 2) for line in lines)
+        return {
+            p[1].rstrip(".")
+            for p in parts
+            if len(p) >= 2 and "localhost" not in p[1]
+        }
+    return {line.split(None, 1)[0].rstrip(".") for line in lines}
 
 
-def _fetch_domains(url: str) -> set[str] | None:
+def _fetch(url: str, parse) -> set[str] | None:
     """Download + parse in the worker thread so CPU parsing of one list
     overlaps with the network wait of the others."""
     raw = download(url)
-    return None if raw is None else parse_domains(raw)
-
-
-def _fetch_tlds(url: str) -> set[str] | None:
-    raw = download(url)
-    return parse_tlds(raw) if raw else None
+    return None if raw is None else parse(raw)
 
 
 def main() -> None:
@@ -194,30 +161,29 @@ def main() -> None:
     session.headers["Authorization"] = f"Bearer {cf_api_token}"
 
     block_urls, tld_url = load_config()
-    urls = list(dict.fromkeys([*block_urls.values(), *([tld_url] if tld_url else [])]))
+    unique_block_urls = list(dict.fromkeys(block_urls.values()))
 
-    workers = min(len(urls) + 2, MAX_DOWNLOAD_WORKERS)
+    # block-list fetches + TLD fetch + the two Cloudflare calls
+    workers = min(len(unique_block_urls) + 3, MAX_DOWNLOAD_WORKERS)
     with ThreadPoolExecutor(max_workers=workers) as pool:
         rules_future = pool.submit(cf.get_rules, session, base)
         lists_future = pool.submit(cf.get_lists, session, base)
 
         domain_futures = {
-            url: pool.submit(_fetch_domains, url)
-            for url in dict.fromkeys(block_urls.values())
+            url: pool.submit(_fetch, url, parse_domains)
+            for url in unique_block_urls
         }
-        tld_future = pool.submit(_fetch_tlds, tld_url) if tld_url else None
+        tld_future = pool.submit(_fetch, tld_url, parse_tlds) if tld_url else None
 
         results = {url: fut.result() for url, fut in domain_futures.items()}
         tld_result = tld_future.result() if tld_future else None
 
-        failed_urls = [url for url, res in results.items() if res is None]
-        if tld_url and tld_result is None:
-            failed_urls.append(tld_url)
-        if failed_urls:
+        block_failed = [url for url, res in results.items() if res is None]
+        if block_failed:
             log.warning(
                 "Skipping %s failed download(s): %s",
-                v(len(failed_urls)),
-                v(", ".join(failed_urls)),
+                v(len(block_failed)),
+                v(", ".join(block_failed)),
             )
 
         tld_set: set[str] = tld_result or set()
@@ -227,13 +193,12 @@ def main() -> None:
         all_domains: set[str] = set().union(
             *(res for res in results.values() if res is not None)
         )
-        any_failed = any(res is None for res in results.values())
         if tld_set:
             all_domains = {
                 d for d in all_domains if not _tld_blocked(d, tld_set)
             }
 
-        if block_urls and any_failed and not all_domains:
+        if block_urls and block_failed and not all_domains:
             raise SystemExit(
                 "All block-list downloads failed — not modifying Cloudflare"
             )
@@ -244,10 +209,6 @@ def main() -> None:
     cf.delete_rules_by_prefix(session, base, NAME_PREFIX_TLD, all_rules)
     if tld_set:
         cf.create_tld_rule(session, base, NAME_PREFIX_TLD, sorted(tld_set))
-
-    existing_lists = [
-        item for item in all_lists if item["name"].startswith(NAME_PREFIX)
-    ]
 
     if not all_domains:
         log.warning("No domains to block — removing existing lists/rule")
@@ -261,7 +222,7 @@ def main() -> None:
         for i in range(0, len(sorted_domains), CHUNK_SIZE)
     ]
 
-    extra_lists = len(all_lists) - len(existing_lists)
+    extra_lists = sum(not item["name"].startswith(NAME_PREFIX) for item in all_lists)
     if len(chunks) + extra_lists > MAX_LISTS:
         raise SystemExit(
             "Would exceed %s list limit — use smaller block lists" % MAX_LISTS
@@ -290,8 +251,6 @@ if __name__ == "__main__":
         main()
     except KeyboardInterrupt:
         raise SystemExit(130)
-    except SystemExit:
-        raise
     except CloudflareAPIError as exc:
         log.critical("Cloudflare API error: %s", exc)
         raise SystemExit(64)
