@@ -8,7 +8,6 @@ from dotenv import load_dotenv
 
 import cloudflare_api as cf
 import logger
-from cloudflare_api import CloudflareAPIError
 from logger import v
 
 NAME_PREFIX = "[CFPihole] Block Ads"
@@ -198,7 +197,7 @@ def main() -> None:
                 d for d in all_domains if not _tld_blocked(d, tld_set)
             }
 
-        if block_urls and block_failed and not all_domains:
+        if block_failed and not all_domains:
             raise SystemExit(
                 "All block-list downloads failed — not modifying Cloudflare"
             )
@@ -251,7 +250,7 @@ if __name__ == "__main__":
         main()
     except KeyboardInterrupt:
         raise SystemExit(130)
-    except CloudflareAPIError as exc:
+    except cf.CloudflareAPIError as exc:
         log.critical("Cloudflare API error: %s", exc)
         raise SystemExit(64)
     except Exception as exc:
