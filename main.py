@@ -7,7 +7,7 @@ import requests
 from dotenv import load_dotenv
 
 import cloudflare_api as cf
-import logger
+from logger import setup as setup_logging
 from logger import v
 
 NAME_PREFIX = "[CFPihole] Block Ads"
@@ -113,8 +113,7 @@ def _tld_blocked(domain: str, tld_set: set[str]) -> bool:
 
 
 def parse_domains(raw: bytes) -> set[str]:
-    """Parse domains from raw bytes (TLD filtering is applied later, once,
-    on the de-duplicated union of all lists)."""
+    """Parse domains from raw bytes."""
     lines = _clean_lines(raw)
     if not lines:
         return set()
@@ -133,15 +132,14 @@ def parse_domains(raw: bytes) -> set[str]:
 
 
 def _fetch(url: str, parse) -> set[str] | None:
-    """Download + parse in the worker thread so CPU parsing of one list
-    overlaps with the network wait of the others."""
+    """Download + parse in the worker thread"""
     raw = download(url)
     return None if raw is None else parse(raw)
 
 
 def main() -> None:
     load_dotenv()
-    logger.setup()
+    setup_logging()
 
     cf_api_token = os.getenv("CF_API_TOKEN")
     if not cf_api_token:
@@ -217,7 +215,7 @@ def main() -> None:
 
     sorted_domains = sorted(all_domains)
     chunks = [
-        sorted_domains[i:i + CHUNK_SIZE]
+        sorted_domains[i : i + CHUNK_SIZE]
         for i in range(0, len(sorted_domains), CHUNK_SIZE)
     ]
 
