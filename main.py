@@ -1,6 +1,7 @@
 import configparser
 import logging
 import os
+import sys
 from concurrent.futures import ThreadPoolExecutor
 
 import requests
@@ -155,7 +156,7 @@ def _list_index(name: str) -> int:
     try:
         return int(name[len(NAME_PREFIX) :])
     except ValueError:
-        return 1 << 30
+        return sys.maxsize
 
 
 def sync_tld_rule(
@@ -164,17 +165,19 @@ def sync_tld_rule(
     all_rules: list[cf.JsonDict],
     tld_set: set[str],
 ) -> None:
-    """Rebuild the TLD rule only if it differs from what is already deployed."""
+    """Rebuild the TLD rule only if it differs from the deployed one."""
     existing = cf.rules_with_prefix(all_rules, NAME_PREFIX_TLD)
     tlds = sorted(tld_set)  # sorted => stable expression => comparable
     if (
         tlds
         and len(existing) == 1
-        and cf.rule_matches(existing[0], cf.tld_traffic(tlds), True)
+        and cf.rule_matches(
+            existing[0], cf.tld_traffic(tlds), block_page_enabled=True
+        )
     ):
         log.info("TLD rule unchanged — skipping")
         return
-    cf.delete_rules_by_prefix(session, base, NAME_PREFIX_TLD, existing)
+    cf.delete_rules(session, base, existing)
     if tlds:
         cf.create_tld_rule(session, base, NAME_PREFIX_TLD, tlds)
 
@@ -188,15 +191,15 @@ def sync_domain_lists(
 ) -> None:
     """Make Cloudflare hold exactly `chunks`, one sequential call per list."""
     existing = sorted(
-        (i for i in all_lists if i["name"].startswith(NAME_PREFIX)),
-        key=lambda i: _list_index(i["name"]),
+        (item for item in all_lists if item["name"].startswith(NAME_PREFIX)),
+        key=lambda item: _list_index(item["name"]),
     )
     reuse, surplus = existing[: len(chunks)], existing[len(chunks) :]
     domain_rules = cf.rules_with_prefix(all_rules, NAME_PREFIX)
 
     if surplus:
         # Lists referenced by a rule cannot be deleted: drop the rule first.
-        cf.delete_rules_by_prefix(session, base, NAME_PREFIX, domain_rules)
+        cf.delete_rules(session, base, domain_rules)
         domain_rules = []
         cf.delete_lists(session, base, surplus)
 
@@ -212,11 +215,13 @@ def sync_domain_lists(
         list_ids.append(list_id)
 
     if len(domain_rules) == 1 and cf.rule_matches(
-        domain_rules[0], cf.domain_traffic(list_ids), False
+        domain_rules[0],
+        cf.domain_traffic(list_ids),
+        block_page_enabled=False,
     ):
         log.info("Domain rule unchanged — skipping")
         return
-    cf.delete_rules_by_prefix(session, base, NAME_PREFIX, domain_rules)
+    cf.delete_rules(session, base, domain_rules)
     cf.create_domain_rule(session, base, NAME_PREFIX, list_ids)
 
 
