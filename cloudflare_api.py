@@ -8,23 +8,24 @@ from logger import v
 log = logging.getLogger("cfpihole")
 
 JsonDict = dict[str, Any]
-JsonResult = JsonDict | list[JsonDict]
 
-MAX_LIST_ITEMS = 1000
+TIMEOUT = 15
+DESCRIPTION = "Created by CFPiHole."
 
 
 class CloudflareAPIError(Exception):
-    """Raised on any Cloudflare API failure.
-
-    The exception is caught in main.py and results in exit code 64.
-    """
+    """Raised on any Cloudflare API failure (main.py exits with code 64)."""
 
 
-def _parse_response(response: requests.Response) -> Any:
-    """Shared response handling: JSON-decode and check Cloudflare's
-    'success' envelope. Raises CloudflareAPIError on any problem.
-    """
+def _request(
+    session: requests.Session,
+    method: str,
+    url: str,
+    json: JsonDict | None = None,
+) -> JsonDict:
+    """Send one request and return Cloudflare's decoded JSON response."""
     try:
+        response = session.request(method, url, json=json, timeout=TIMEOUT)
         response.raise_for_status()
         data = response.json()
     except requests.RequestException as exc:
@@ -33,91 +34,105 @@ def _parse_response(response: requests.Response) -> Any:
         raise CloudflareAPIError(f"Invalid JSON response: {exc}") from exc
 
     if not data.get("success", True):
-        raise CloudflareAPIError(
-            f"Cloudflare API error: {data.get('errors')}"
-        )
+        raise CloudflareAPIError(f"Cloudflare API error: {data.get('errors')}")
     return data
 
 
-def _request(
-    session: requests.Session,
-    method: str,
-    url: str,
-    json: JsonDict | None = None,
-) -> JsonResult:
-    """Make a single Cloudflare API request and return its 'result'."""
-    try:
-        response = session.request(method, url, json=json, timeout=15)
-    except requests.RequestException as exc:
-        raise CloudflareAPIError(f"Request failed: {exc}") from exc
-    data = _parse_response(response)
-    result = data.get("result", [])
-    if not isinstance(result, (dict, list)):
+def _get_all(session: requests.Session, url: str) -> list[JsonDict]:
+    """GET a Gateway collection (Cloudflare returns it in a single response)."""
+    data = _request(session, "GET", url)
+    items = data.get("result") or []
+    total = (data.get("result_info") or {}).get("total_count")
+    if total is not None and total > len(items):
         raise CloudflareAPIError(
-            "Unexpected Cloudflare API result type: "
-            f"{type(result).__name__}"
+            f"Incomplete response from {url}: got {len(items)} of {total} items"
         )
-    return result
-
-
-def _get_paginated(
-    session: requests.Session,
-    base: str,
-    path: str,
-    per_page: int = 50,
-    max_pages: int = 100,
-) -> list[JsonDict]:
-    """Fetch every page of a Cloudflare Gateway list endpoint."""
-    results: list[JsonDict] = []
-    seen_ids: set[Any] = set()
-    page = 1
-    while page <= max_pages:
-        try:
-            response = session.get(
-                f"{base}/{path}",
-                params={"page": page, "per_page": per_page},
-                timeout=15,
-            )
-        except requests.RequestException as exc:
-            raise CloudflareAPIError(f"Request failed: {exc}") from exc
-        data = _parse_response(response)
-
-        chunk = data.get("result") or []
-        new_items = [item for item in chunk if item.get("id") not in seen_ids]
-        if not new_items:
-            break
-
-        results.extend(new_items)
-        seen_ids.update(item.get("id") for item in new_items)
-
-        total = (data.get("result_info") or {}).get("total_count")
-        if len(chunk) < per_page or (
-            total is not None and len(results) >= total
-        ):
-            break
-        page += 1
-    else:
-        raise CloudflareAPIError(
-            f"Stopped paginating {path} after {max_pages} pages "
-            "— result set may be incomplete"
-        )
-
-    return results
+    return items
 
 
 def get_lists(session: requests.Session, base: str) -> list[JsonDict]:
     """Return every Gateway list in the account."""
-    return _get_paginated(session, base, "lists")
+    return _get_all(session, f"{base}/lists")
+
+
+def lists_with_prefix(lists: list[JsonDict], prefix: str) -> list[JsonDict]:
+    """Return the lists in an already-fetched snapshot named with prefix."""
+    return [item for item in lists if item.get("name", "").startswith(prefix)]
+
+
+def _list_body(name: str, domains: list[str]) -> JsonDict:
+    """Request body shared by list creation and update."""
+    return {
+        "name": name,
+        "description": DESCRIPTION,
+        "items": [{"value": domain} for domain in domains],
+    }
+
+
+def create_list(
+    session: requests.Session, base: str, name: str, domains: list[str]
+) -> str:
+    """Create a DOMAIN list and return its Cloudflare list ID."""
+    data = _request(
+        session,
+        "POST",
+        f"{base}/lists",
+        json={**_list_body(name, domains), "type": "DOMAIN"},
+    )
+    result = data.get("result")
+    if not isinstance(result, dict) or not isinstance(result.get("id"), str):
+        raise CloudflareAPIError("Invalid list response: expected a string 'id'")
+    log.debug("Created list: %s (%s domains)", v(name), v(len(domains)))
+    return result["id"]
+
+
+def update_list(
+    session: requests.Session,
+    base: str,
+    list_id: str,
+    name: str,
+    domains: list[str],
+) -> None:
+    """Replace an existing list's items with one PUT."""
+    _request(
+        session,
+        "PUT",
+        f"{base}/lists/{list_id}",
+        json=_list_body(name, domains),
+    )
+    log.debug("Updated list: %s (%s domains)", v(name), v(len(domains)))
+
+
+def delete_lists(
+    session: requests.Session, base: str, lists: list[JsonDict]
+) -> None:
+    """Delete exactly the given lists, one at a time."""
+    for item in lists:
+        _request(session, "DELETE", f"{base}/lists/{item['id']}")
+        log.debug("Deleted list: %s", v(item["name"]))
 
 
 def get_rules(session: requests.Session, base: str) -> list[JsonDict]:
     """Return every Gateway DNS rule in the account."""
-    return _get_paginated(session, base, "rules")
+    return _get_all(session, f"{base}/rules")
 
 
 def rules_with_prefix(rules: list[JsonDict], prefix: str) -> list[JsonDict]:
     """Return the rules in an already-fetched snapshot named with prefix."""
-    return [r for r in rules if r.get("name", "").startswith(prefix)]
+    return [rule for rule in rules if rule.get("name", "").startswith(prefix)]
+
+
+def domain_traffic(list_ids: list[str]) -> str:
+    """Traffic expression matching any of list_ids."""
+    return " or ".join(
+        f"any(dns.domains[*] in ${list_id})" for list_id in list_ids
+    )
+
+
+def tld_traffic(tlds: list[str]) -> str:
+    """Traffic expression matching any of the given TLDs."""
+    pattern = "|".join(tlds)
+    return f'any(dns.domains[*] matches "[.]({pattern})$")'
 
 
 def rule_matches(
@@ -132,132 +147,21 @@ def rule_matches(
     )
 
 
-def delete_rules(
-    session: requests.Session, base: str, rules: list[JsonDict]
-) -> None:
-    """Delete exactly the given rules (sequentially)."""
-    for rule in rules:
-        _request(session, "DELETE", f"{base}/rules/{rule['id']}")
-        log.info("Deleted rule: %s", v(rule["name"]))
-
-
-def delete_rules_by_prefix(
-    session: requests.Session,
-    base: str,
-    prefix: str,
-    rules: list[JsonDict] | None = None,
-) -> None:
-    """Delete every rule whose name starts with prefix."""
-    if rules is None:
-        rules = get_rules(session, base)
-    delete_rules(session, base, rules_with_prefix(rules, prefix))
-
-
-def delete_lists(
-    session: requests.Session, base: str, lists: list[JsonDict]
-) -> None:
-    """Delete exactly the given lists (sequentially)."""
-    for item in lists:
-        _request(session, "DELETE", f"{base}/lists/{item['id']}")
-        log.debug("Deleted list: %s", v(item["name"]))
-
-
-def delete_lists_by_prefix(
-    session: requests.Session,
-    base: str,
-    prefix: str,
-    lists: list[JsonDict] | None = None,
-) -> None:
-    """Delete every list whose name starts with prefix."""
-    if lists is None:
-        lists = get_lists(session, base)
-    delete_lists(
-        session,
-        base,
-        [item for item in lists if item.get("name", "").startswith(prefix)],
-    )
-
-
-def _list_body(name: str, domains: list[str]) -> JsonDict:
-    """Request body shared by list creation and update."""
-    if len(domains) > MAX_LIST_ITEMS:
-        raise ValueError(
-            f"{name}: {len(domains)} domains exceeds the "
-            f"{MAX_LIST_ITEMS}-item chunk size"
-        )
-    return {
-        "name": name,
-        "description": "Created by CFPiHole.",
-        "items": [{"value": domain} for domain in domains],
-    }
-
-
-def create_list(
-    session: requests.Session, base: str, name: str, domains: list[str]
-) -> str:
-    """Create a DOMAIN list and return its Cloudflare list ID."""
-    result = _request(
-        session,
-        "POST",
-        f"{base}/lists",
-        json={**_list_body(name, domains), "type": "DOMAIN"},
-    )
-    if not isinstance(result, dict) or not isinstance(result.get("id"), str):
-        raise CloudflareAPIError(
-            "Invalid list response: expected a string 'id'"
-        )
-    log.debug("Created list: %s (%s domains)", v(name), v(len(domains)))
-    return result["id"]
-
-
-def update_list(
-    session: requests.Session,
-    base: str,
-    list_id: str,
-    name: str,
-    domains: list[str],
-) -> None:
-    """Overwrite an existing list's items in place with a single PUT.
-
-    Cloudflare replaces the items when a non-empty ``items`` array is sent, so
-    this stands in for a DELETE + POST pair and keeps the list ID (and
-    therefore any rule referencing it) valid.
-    """
-    _request(
-        session,
-        "PUT",
-        f"{base}/lists/{list_id}",
-        json=_list_body(name, domains),
-    )
-    log.debug("Updated list: %s (%s domains)", v(name), v(len(domains)))
-
-
-def domain_traffic(list_ids: list[str]) -> str:
-    """Traffic expression matching any of list_ids."""
-    return " or ".join(
-        f"any(dns.domains[*] in ${list_id})" for list_id in list_ids
-    )
-
-
-def tld_traffic(tlds: list[str]) -> str:
-    """Traffic expression matching any of the given TLDs."""
-    return f'any(dns.domains[*] matches "[.]({"|".join(tlds)})$")'
-
-
-def _create_rule(
+def create_rule(
     session: requests.Session,
     base: str,
     name: str,
     traffic: str,
     block_page_enabled: bool,
 ) -> None:
+    """Create a DNS block rule for the given traffic expression."""
     _request(
         session,
         "POST",
         f"{base}/rules",
         json={
             "name": name,
-            "description": "Created by CFPiHole.",
+            "description": DESCRIPTION,
             "action": "block",
             "enabled": True,
             "filters": ["dns"],
@@ -265,25 +169,13 @@ def _create_rule(
             "rule_settings": {"block_page_enabled": block_page_enabled},
         },
     )
+    log.info("Created rule: %s", v(name))
 
 
-def create_domain_rule(
-    session: requests.Session, base: str, name: str, list_ids: list[str]
+def delete_rules(
+    session: requests.Session, base: str, rules: list[JsonDict]
 ) -> None:
-    """Create a DNS rule that blocks traffic matching any of list_ids."""
-    if not list_ids:
-        return
-    _create_rule(
-        session, base, name, domain_traffic(list_ids), block_page_enabled=False
-    )
-    log.info("Created domain rule: %s", v(name))
-
-
-def create_tld_rule(
-    session: requests.Session, base: str, name: str, tlds: list[str]
-) -> None:
-    """Create a DNS rule that blocks traffic to the given TLDs."""
-    _create_rule(
-        session, base, name, tld_traffic(tlds), block_page_enabled=True
-    )
-    log.info("Created TLD rule: %s", v(name))
+    """Delete exactly the given rules, one at a time."""
+    for rule in rules:
+        _request(session, "DELETE", f"{base}/rules/{rule['id']}")
+        log.info("Deleted rule: %s", v(rule["name"]))
