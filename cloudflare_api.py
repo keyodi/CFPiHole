@@ -116,18 +116,29 @@ def get_rules(session: requests.Session, base: str) -> list[JsonDict]:
 
 
 def rules_with_prefix(rules: list[JsonDict], prefix: str) -> list[JsonDict]:
-    """Return the rules (from an already-fetched snapshot) named with prefix."""
+    """Return the rules in an already-fetched snapshot named with prefix."""
     return [r for r in rules if r.get("name", "").startswith(prefix)]
 
 
-def rule_matches(rule: JsonDict, traffic: str, block_page_enabled: bool) -> bool:
-    """True if an existing rule already is what we would create."""
+def rule_matches(
+    rule: JsonDict, traffic: str, block_page_enabled: bool
+) -> bool:
+    """Return True if an existing rule is already what we would create."""
     settings = rule.get("rule_settings") or {}
     return (
         rule.get("traffic") == traffic
         and rule.get("enabled", True)
-        and bool(settings.get("block_page_enabled", False)) == block_page_enabled
+        and bool(settings.get("block_page_enabled")) == block_page_enabled
     )
+
+
+def delete_rules(
+    session: requests.Session, base: str, rules: list[JsonDict]
+) -> None:
+    """Delete exactly the given rules (sequentially)."""
+    for rule in rules:
+        _request(session, "DELETE", f"{base}/rules/{rule['id']}")
+        log.info("Deleted rule: %s", v(rule["name"]))
 
 
 def delete_rules_by_prefix(
@@ -137,11 +148,9 @@ def delete_rules_by_prefix(
     rules: list[JsonDict] | None = None,
 ) -> None:
     """Delete every rule whose name starts with prefix."""
-    for rule in rules_with_prefix(
-        rules if rules is not None else get_rules(session, base), prefix
-    ):
-        _request(session, "DELETE", f"{base}/rules/{rule['id']}")
-        log.info("Deleted rule: %s", v(rule["name"]))
+    if rules is None:
+        rules = get_rules(session, base)
+    delete_rules(session, base, rules_with_prefix(rules, prefix))
 
 
 def delete_lists(
@@ -160,13 +169,17 @@ def delete_lists_by_prefix(
     lists: list[JsonDict] | None = None,
 ) -> None:
     """Delete every list whose name starts with prefix."""
-    source = lists if lists is not None else get_lists(session, base)
+    if lists is None:
+        lists = get_lists(session, base)
     delete_lists(
-        session, base, [i for i in source if i.get("name", "").startswith(prefix)]
+        session,
+        base,
+        [item for item in lists if item.get("name", "").startswith(prefix)],
     )
 
 
-def _list_payload(name: str, domains: list[str]) -> JsonDict:
+def _list_body(name: str, domains: list[str]) -> JsonDict:
+    """Request body shared by list creation and update."""
     if len(domains) > MAX_LIST_ITEMS:
         raise ValueError(
             f"{name}: {len(domains)} domains exceeds the "
@@ -175,7 +188,6 @@ def _list_payload(name: str, domains: list[str]) -> JsonDict:
     return {
         "name": name,
         "description": "Created by CFPiHole.",
-        "type": "DOMAIN",
         "items": [{"value": domain} for domain in domains],
     }
 
@@ -185,7 +197,10 @@ def create_list(
 ) -> str:
     """Create a DOMAIN list and return its Cloudflare list ID."""
     result = _request(
-        session, "POST", f"{base}/lists", json=_list_payload(name, domains)
+        session,
+        "POST",
+        f"{base}/lists",
+        json={**_list_body(name, domains), "type": "DOMAIN"},
     )
     if not isinstance(result, dict) or not isinstance(result.get("id"), str):
         raise CloudflareAPIError(
@@ -202,10 +217,18 @@ def update_list(
     name: str,
     domains: list[str],
 ) -> None:
-    """Overwrite an existing list's items in place (one PUT)."""
-    payload = _list_payload(name, domains)
-    del payload["type"]  # immutable, not part of the update body
-    _request(session, "PUT", f"{base}/lists/{list_id}", json=payload)
+    """Overwrite an existing list's items in place with a single PUT.
+
+    Cloudflare replaces the items when a non-empty ``items`` array is sent, so
+    this stands in for a DELETE + POST pair and keeps the list ID (and
+    therefore any rule referencing it) valid.
+    """
+    _request(
+        session,
+        "PUT",
+        f"{base}/lists/{list_id}",
+        json=_list_body(name, domains),
+    )
     log.debug("Updated list: %s (%s domains)", v(name), v(len(domains)))
 
 
@@ -250,7 +273,9 @@ def create_domain_rule(
     """Create a DNS rule that blocks traffic matching any of list_ids."""
     if not list_ids:
         return
-    _create_rule(session, base, name, domain_traffic(list_ids), False)
+    _create_rule(
+        session, base, name, domain_traffic(list_ids), block_page_enabled=False
+    )
     log.info("Created domain rule: %s", v(name))
 
 
@@ -258,5 +283,7 @@ def create_tld_rule(
     session: requests.Session, base: str, name: str, tlds: list[str]
 ) -> None:
     """Create a DNS rule that blocks traffic to the given TLDs."""
-    _create_rule(session, base, name, tld_traffic(tlds), True)
+    _create_rule(
+        session, base, name, tld_traffic(tlds), block_page_enabled=True
+    )
     log.info("Created TLD rule: %s", v(name))
