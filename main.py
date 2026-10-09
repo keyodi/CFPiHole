@@ -103,13 +103,26 @@ def parse_tlds(raw: bytes) -> set[str]:
     return tlds
 
 
-def _tld_blocked(domain: str, tld_set: set[str]) -> bool:
-    """Return True if any proper dot-suffix of domain is in tld_set."""
-    while "." in domain:
-        domain = domain.partition(".")[2]
-        if domain in tld_set:
-            return True
-    return False
+def drop_blocked_tlds(domains: set[str], tld_set: set[str]) -> set[str]:
+    """Drop every domain that has a proper dot-suffix present in tld_set."""
+    if not tld_set:
+        return domains
+
+    single = {t for t in tld_set if "." not in t}
+    multi = tuple("." + t for t in tld_set if "." in t)
+
+    if multi:
+        return {
+            d
+            for d in domains
+            if (not (p := d.rpartition("."))[1] or p[2] not in single)
+            and not d.endswith(multi)
+        }
+    return {
+        d
+        for d in domains
+        if not (p := d.rpartition("."))[1] or p[2] not in single
+    }
 
 
 def parse_domains(raw: bytes) -> set[str]:
@@ -135,6 +148,76 @@ def _fetch(url: str, parse) -> set[str] | None:
     """Download + parse in the worker thread"""
     raw = download(url)
     return None if raw is None else parse(raw)
+
+
+def _list_index(name: str) -> int:
+    """Numeric suffix of '<NAME_PREFIX> <n>' (unparseable names sort last)."""
+    try:
+        return int(name[len(NAME_PREFIX) :])
+    except ValueError:
+        return 1 << 30
+
+
+def sync_tld_rule(
+    session: requests.Session,
+    base: str,
+    all_rules: list[cf.JsonDict],
+    tld_set: set[str],
+) -> None:
+    """Rebuild the TLD rule only if it differs from what is already deployed."""
+    existing = cf.rules_with_prefix(all_rules, NAME_PREFIX_TLD)
+    tlds = sorted(tld_set)  # sorted => stable expression => comparable
+    if (
+        tlds
+        and len(existing) == 1
+        and cf.rule_matches(existing[0], cf.tld_traffic(tlds), True)
+    ):
+        log.info("TLD rule unchanged — skipping")
+        return
+    cf.delete_rules_by_prefix(session, base, NAME_PREFIX_TLD, existing)
+    if tlds:
+        cf.create_tld_rule(session, base, NAME_PREFIX_TLD, tlds)
+
+
+def sync_domain_lists(
+    session: requests.Session,
+    base: str,
+    chunks: list[list[str]],
+    all_rules: list[cf.JsonDict],
+    all_lists: list[cf.JsonDict],
+) -> None:
+    """Make Cloudflare hold exactly `chunks`, one sequential call per list."""
+    existing = sorted(
+        (i for i in all_lists if i["name"].startswith(NAME_PREFIX)),
+        key=lambda i: _list_index(i["name"]),
+    )
+    reuse, surplus = existing[: len(chunks)], existing[len(chunks) :]
+    domain_rules = cf.rules_with_prefix(all_rules, NAME_PREFIX)
+
+    if surplus:
+        # Lists referenced by a rule cannot be deleted: drop the rule first.
+        cf.delete_rules_by_prefix(session, base, NAME_PREFIX, domain_rules)
+        domain_rules = []
+        cf.delete_lists(session, base, surplus)
+
+    log.info("Updating lists, please wait")
+    list_ids: list[str] = []
+    for index, chunk in enumerate(chunks, 1):
+        name = f"{NAME_PREFIX} {index}"
+        if index <= len(reuse):
+            list_id = reuse[index - 1]["id"]
+            cf.update_list(session, base, list_id, name, chunk)
+        else:
+            list_id = cf.create_list(session, base, name, chunk)
+        list_ids.append(list_id)
+
+    if len(domain_rules) == 1 and cf.rule_matches(
+        domain_rules[0], cf.domain_traffic(list_ids), False
+    ):
+        log.info("Domain rule unchanged — skipping")
+        return
+    cf.delete_rules_by_prefix(session, base, NAME_PREFIX, domain_rules)
+    cf.create_domain_rule(session, base, NAME_PREFIX, list_ids)
 
 
 def main() -> None:
@@ -190,10 +273,7 @@ def main() -> None:
         all_domains: set[str] = set().union(
             *(res for res in results.values() if res is not None)
         )
-        if tld_set:
-            all_domains = {
-                d for d in all_domains if not _tld_blocked(d, tld_set)
-            }
+        all_domains = drop_blocked_tlds(all_domains, tld_set)
 
         if block_failed and not all_domains:
             raise SystemExit(
@@ -203,9 +283,7 @@ def main() -> None:
         all_rules = rules_future.result()
         all_lists = lists_future.result()
 
-    cf.delete_rules_by_prefix(session, base, NAME_PREFIX_TLD, all_rules)
-    if tld_set:
-        cf.create_tld_rule(session, base, NAME_PREFIX_TLD, sorted(tld_set))
+    sync_tld_rule(session, base, all_rules, tld_set)
 
     if not all_domains:
         log.warning("No domains to block — removing existing lists/rule")
@@ -231,16 +309,7 @@ def main() -> None:
         v(len(chunks)),
     )
 
-    cf.delete_rules_by_prefix(session, base, NAME_PREFIX, all_rules)
-    log.info("Deleting lists, please wait")
-    cf.delete_lists_by_prefix(session, base, NAME_PREFIX, lists=all_lists)
-
-    log.info("Creating lists, please wait")
-    list_ids = [
-        cf.create_list(session, base, f"{NAME_PREFIX} {index}", chunk)
-        for index, chunk in enumerate(chunks, 1)
-    ]
-    cf.create_domain_rule(session, base, NAME_PREFIX, list_ids)
+    sync_domain_lists(session, base, chunks, all_rules, all_lists)
 
 
 if __name__ == "__main__":
