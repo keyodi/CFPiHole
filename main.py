@@ -2,6 +2,7 @@ import configparser
 import logging
 import os
 import sys
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
 from dotenv import load_dotenv
@@ -20,6 +21,7 @@ CHUNK_SIZE = 1000
 
 MAX_DOWNLOAD_MB = 10
 MAX_DOWNLOAD_BYTES = MAX_DOWNLOAD_MB * 1024 * 1024
+MAX_DOWNLOAD_WORKERS = 16
 
 COMMENT_CHARS = frozenset("!#;/[")
 HOSTS_IPS = frozenset(("127.0.0.1", "0.0.0.0"))
@@ -142,7 +144,7 @@ def drop_blocked_tlds(domains: set[str], tlds: set[str]) -> set[str]:
 
 
 def fetch(url: str, parse) -> set[str] | None:
-    """Download and parse a URL, or return None if the download failed."""
+    """Download and parse a URL (run in a worker thread)."""
     raw = download(url)
     return None if raw is None else parse(raw)
 
@@ -237,8 +239,19 @@ def main() -> None:
 
     block_urls, tld_url = load_config()
 
+    # Fetch everything at once: Cloudflare's rules and lists, every block
+    # list, and the TLD list.
+    workers = min(len(block_urls) + 3, MAX_DOWNLOAD_WORKERS)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        rules_future = pool.submit(cf.get_rules, session, base)
+        lists_future = pool.submit(cf.get_lists, session, base)
+        block_futures = {
+            url: pool.submit(fetch, url, parse_domains) for url in block_urls
+        }
+        tld_future = pool.submit(fetch, tld_url, parse_tlds) if tld_url else None
+
     # Block lists: collect the domains, skipping any that failed to download.
-    block_results = {url: fetch(url, parse_domains) for url in block_urls}
+    block_results = {url: fut.result() for url, fut in block_futures.items()}
     failed_urls = [url for url, domains in block_results.items() if domains is None]
     if failed_urls:
         log.warning(
@@ -248,9 +261,9 @@ def main() -> None:
         )
 
     # TLD list: if it failed, no TLD rule is kept this run.
-    tld_result = fetch(tld_url, parse_tlds) if tld_url else None
+    tld_result = tld_future.result() if tld_future else None
     tld_set = tld_result or set()
-    if tld_url and tld_result is None:
+    if tld_future and tld_result is None:
         log.warning("TLD list unavailable — no TLD-level blocking this run")
 
     all_domains = set().union(*(d for d in block_results.values() if d is not None))
@@ -261,8 +274,8 @@ def main() -> None:
             "All block-list downloads failed — not modifying Cloudflare"
         )
 
-    all_rules = cf.get_rules(session, base)
-    all_lists = cf.get_lists(session, base)
+    all_rules = rules_future.result()
+    all_lists = lists_future.result()
 
     sync_tld_rule(session, base, all_rules, tld_set)
 
