@@ -11,18 +11,21 @@ from logger import setup as setup_logging
 from logger import v
 
 CONFIG_FILE = "config.ini"
-NAME_PREFIX = "[CFPihole] Block Ads"
-NAME_PREFIX_TLD = "[CFPihole] Block TLDs"
+DOMAIN_NAME_PREFIX = "[CFPihole] Block Ads"
+TLD_NAME_PREFIX = "[CFPihole] Block TLDs"
 
 # Cloudflare Gateway limits
 MAX_LISTS = 300
-CHUNK_SIZE = 1000
+DOMAINS_PER_LIST = 1000
 
+DOWNLOAD_TIMEOUT_SECONDS = 15
+DOWNLOAD_CHUNK_BYTES = 65536
 MAX_DOWNLOAD_MB = 10
 MAX_DOWNLOAD_BYTES = MAX_DOWNLOAD_MB * 1024 * 1024
 
 COMMENT_CHARS = frozenset("!#;/[")
-HOSTS_IPS = frozenset(("127.0.0.1", "0.0.0.0"))
+HOSTS_FILE_IPS = frozenset(("127.0.0.1", "0.0.0.0"))
+HOSTS_DETECTION_LINES = 30
 
 log = logging.getLogger("cfpihole")
 
@@ -35,18 +38,25 @@ def require_env(name: str) -> str:
     return value
 
 
+def section_urls(parser: configparser.ConfigParser, section: str) -> list[str]:
+    """Return the URLs in a config section (empty if it is missing)."""
+    if section not in parser:
+        return []
+    return list(parser[section].values())
+
+
 def load_config() -> tuple[list[str], str | None]:
     """Read config.ini and return (block_list_urls, tld_list_url)."""
     parser = configparser.ConfigParser(interpolation=None)
     try:
-        found = parser.read(CONFIG_FILE)
-    except configparser.Error as exc:
-        raise SystemExit(f"Invalid config.ini: {exc}")
-    if not found:
+        files_read = parser.read(CONFIG_FILE)
+    except configparser.Error as error:
+        raise SystemExit(f"Invalid config.ini: {error}")
+    if not files_read:
         raise SystemExit(f"Config file not found: {CONFIG_FILE}")
 
-    block_urls = list(parser["BlockLists"].values()) if "BlockLists" in parser else []
-    tld_urls = list(parser["TLDList"].values()) if "TLDList" in parser else []
+    block_urls = section_urls(parser, "BlockLists")
+    tld_urls = section_urls(parser, "TLDList")
 
     if not block_urls and not tld_urls:
         raise SystemExit("config.ini has no [BlockLists] or [TLDList] entries")
@@ -56,161 +66,173 @@ def load_config() -> tuple[list[str], str | None]:
         if not url.startswith("https://"):
             raise SystemExit(f"URL must use https://: {url}")
 
-    unique_block_urls = list(dict.fromkeys(block_urls))  # drop duplicates, keep order
-    return unique_block_urls, (tld_urls[0] if tld_urls else None)
+    block_urls = list(dict.fromkeys(block_urls))  # drop duplicates, keep order
+    tld_url = tld_urls[0] if tld_urls else None
+    return block_urls, tld_url
 
 
 def download(url: str) -> bytes | None:
     """Download a URL and return its bytes, or None on failure."""
-    content = bytearray()
+    downloaded = bytearray()
     try:
-        with requests.get(url, timeout=15, stream=True) as response:
+        with requests.get(
+            url, timeout=DOWNLOAD_TIMEOUT_SECONDS, stream=True
+        ) as response:
             response.raise_for_status()
             if not response.url.startswith("https://"):
                 log.error("Refused non-HTTPS redirect for %s", v(url))
                 return None
 
-            for part in response.iter_content(chunk_size=65536):
-                content += part
-                if len(content) > MAX_DOWNLOAD_BYTES:
+            for chunk in response.iter_content(DOWNLOAD_CHUNK_BYTES):
+                downloaded += chunk
+                if len(downloaded) > MAX_DOWNLOAD_BYTES:
                     log.error(
                         "Refused response over %s MB for %s",
                         v(MAX_DOWNLOAD_MB),
                         v(url),
                     )
                     return None
-    except requests.RequestException as exc:
-        log.error("Failed downloading %s: %s", v(url), v(exc))
+    except requests.RequestException as error:
+        log.error("Failed downloading %s: %s", v(url), v(error))
         return None
 
-    log.info("Downloaded: %s %s", v(url), v(f"{len(content) / 1024:.0f} KB"))
-    return bytes(content)
+    size_kb = len(downloaded) / 1024
+    log.info("Downloaded: %s %s", v(url), v(f"{size_kb:.0f} KB"))
+    return bytes(downloaded)
 
 
-def clean_lines(raw: bytes) -> list[str]:
-    """Return the non-empty, non-comment, lower-cased lines of raw bytes."""
-    text = raw.decode("utf-8", errors="ignore").lower()
-    lines = (line.strip() for line in text.splitlines())
-    return [line for line in lines if line and line[0] not in COMMENT_CHARS]
+def clean_lines(raw_bytes: bytes) -> list[str]:
+    """Return the non-empty, non-comment, lower-cased lines of raw_bytes."""
+    text = raw_bytes.decode("utf-8", errors="ignore").lower()
+    stripped_lines = (line.strip() for line in text.splitlines())
+    return [
+        line
+        for line in stripped_lines
+        if line and line[0] not in COMMENT_CHARS
+    ]
 
 
-def parse_tlds(raw: bytes) -> set[str]:
-    """Return the set of TLDs found in raw bytes."""
+def parse_tlds(raw_bytes: bytes) -> set[str]:
+    """Return the set of TLDs found in raw_bytes."""
     tlds = set()
-    for line in clean_lines(raw):
-        tld = "".join(c for c in line if c.isalnum() or c in "-.").strip(".")
+    for line in clean_lines(raw_bytes):
+        tld = "".join(
+            char for char in line if char.isalnum() or char in "-."
+        ).strip(".")
         if tld:
             tlds.add(tld)
     return tlds
 
 
-def parse_domains(raw: bytes) -> set[str]:
-    """Return the set of domains found in raw bytes.
+def parse_domains(raw_bytes: bytes) -> set[str]:
+    """Return the set of domains found in raw_bytes."""
+    lines = clean_lines(raw_bytes)
 
-    Handles both plain domain lists and hosts files ("0.0.0.0 example.com").
-    """
-    lines = clean_lines(raw)
-
-    # Treat the file as a hosts file if most of its first 30 lines start
+    # Treat the file as a hosts file if most of its first lines start
     # with a hosts IP address.
-    first_words = [line.split()[0] for line in lines[:30]]
-    hosts_lines = sum(word in HOSTS_IPS for word in first_words)
-    is_hosts_file = hosts_lines * 2 > len(first_words)
+    first_words = [line.split()[0] for line in lines[:HOSTS_DETECTION_LINES]]
+    hosts_line_count = sum(word in HOSTS_FILE_IPS for word in first_words)
+    is_hosts_file = hosts_line_count * 2 > len(first_words)
 
-    if is_hosts_file:
-        domains = set()
-        for line in lines:
-            words = line.split()
-            if len(words) >= 2 and "localhost" not in words[1]:
-                domains.add(words[1].rstrip("."))
-        return domains
-
-    return {line.split()[0].rstrip(".") for line in lines}
+    domains = set()
+    for line in lines:
+        words = line.split()
+        if not is_hosts_file:
+            domains.add(words[0].rstrip("."))
+        elif len(words) >= 2 and "localhost" not in words[1]:
+            domains.add(words[1].rstrip("."))
+    return domains
 
 
 def drop_blocked_tlds(domains: set[str], tlds: set[str]) -> set[str]:
     """Remove domains already covered by the TLD rule."""
-    single = {tld for tld in tlds if "." not in tld}
-    multi = tuple("." + tld for tld in tlds if "." in tld)
-
-    def is_blocked(domain: str) -> bool:
-        if "." not in domain:
-            return False
-        return domain.rpartition(".")[2] in single or domain.endswith(multi)
-
-    return {domain for domain in domains if not is_blocked(domain)}
+    tld_suffixes = tuple("." + tld for tld in tlds)
+    return {
+        domain for domain in domains if not domain.endswith(tld_suffixes)
+    }
 
 
 def fetch(url: str, parse) -> set[str] | None:
     """Download and parse a URL, or return None if the download failed."""
-    raw = download(url)
-    return None if raw is None else parse(raw)
+    raw_bytes = download(url)
+    return None if raw_bytes is None else parse(raw_bytes)
 
 
-def list_number(name: str) -> int:
-    """Number at the end of '<NAME_PREFIX> <n>' (odd names sort last)."""
+def list_number(list_name: str) -> int:
+    """Number at the end of '<DOMAIN_NAME_PREFIX> <n>' (odd names last)."""
     try:
-        return int(name[len(NAME_PREFIX) :])
+        return int(list_name[len(DOMAIN_NAME_PREFIX):])
     except ValueError:
         return sys.maxsize
 
 
 def sync_tld_rule(
     session: requests.Session,
-    base: str,
-    all_rules: list[cf.JsonDict],
-    tld_set: set[str],
+    gateway_url: str,
+    account_rules: list[cf.JsonDict],
+    blocked_tlds: set[str],
 ) -> None:
-    """Make Cloudflare hold the TLD rule for tld_set (or none if it's empty)."""
-    existing = cf.rules_with_prefix(all_rules, NAME_PREFIX_TLD)
-    tlds = sorted(tld_set)  # sorted, so the expression is stable and comparable
-    traffic = cf.tld_traffic(tlds)
+    """Make Cloudflare hold the TLD rule for blocked_tlds (none if empty)."""
+    existing_rules = cf.with_prefix(account_rules, TLD_NAME_PREFIX)
+    sorted_tlds = sorted(blocked_tlds)  # keeps the expression stable
+    traffic = cf.tld_traffic(sorted_tlds)
 
     if (
-        tlds
-        and len(existing) == 1
-        and cf.rule_matches(existing[0], traffic, block_page_enabled=True)
+        sorted_tlds
+        and len(existing_rules) == 1
+        and cf.rule_matches(
+            existing_rules[0], traffic, block_page_enabled=True
+        )
     ):
         log.info("TLD rule unchanged — skipping")
         return
 
-    cf.delete_rules(session, base, existing)
-    if tlds:
+    cf.delete_rules(session, gateway_url, existing_rules)
+    if sorted_tlds:
         cf.create_rule(
-            session, base, NAME_PREFIX_TLD, traffic, block_page_enabled=True
+            session,
+            gateway_url,
+            TLD_NAME_PREFIX,
+            traffic,
+            block_page_enabled=True,
         )
 
 
 def sync_domain_lists(
     session: requests.Session,
-    base: str,
-    chunks: list[list[str]],
-    all_rules: list[cf.JsonDict],
-    all_lists: list[cf.JsonDict],
+    gateway_url: str,
+    domain_chunks: list[list[str]],
+    account_rules: list[cf.JsonDict],
+    account_lists: list[cf.JsonDict],
 ) -> None:
     """Make Cloudflare hold exactly one list per chunk, plus one rule."""
-    existing = sorted(
-        cf.lists_with_prefix(all_lists, NAME_PREFIX),
-        key=lambda item: list_number(item["name"]),
+    existing_lists = sorted(
+        cf.with_prefix(account_lists, DOMAIN_NAME_PREFIX),
+        key=lambda gateway_list: list_number(gateway_list["name"]),
     )
-    reused, surplus = existing[: len(chunks)], existing[len(chunks) :]
-    domain_rules = cf.rules_with_prefix(all_rules, NAME_PREFIX)
+    lists_to_update = existing_lists[: len(domain_chunks)]
+    lists_to_delete = existing_lists[len(domain_chunks):]
+    domain_rules = cf.with_prefix(account_rules, DOMAIN_NAME_PREFIX)
 
-    if surplus:
+    if lists_to_delete:
         # A list used by a rule can't be deleted, so delete the rule first.
-        cf.delete_rules(session, base, domain_rules)
+        cf.delete_rules(session, gateway_url, domain_rules)
         domain_rules = []
-        cf.delete_lists(session, base, surplus)
+        cf.delete_lists(session, gateway_url, lists_to_delete)
 
     log.info("Updating lists, please wait")
     list_ids = []
-    for number, chunk in enumerate(chunks, 1):
-        name = f"{NAME_PREFIX} {number}"
-        if number <= len(reused):
-            list_id = reused[number - 1]["id"]
-            cf.update_list(session, base, list_id, name, chunk)
+    for position, domain_chunk in enumerate(domain_chunks, start=1):
+        list_name = f"{DOMAIN_NAME_PREFIX} {position}"
+        if position <= len(lists_to_update):
+            list_id = lists_to_update[position - 1]["id"]
+            cf.update_list(
+                session, gateway_url, list_id, list_name, domain_chunk
+            )
         else:
-            list_id = cf.create_list(session, base, name, chunk)
+            list_id = cf.create_list(
+                session, gateway_url, list_name, domain_chunk
+            )
         list_ids.append(list_id)
 
     traffic = cf.domain_traffic(list_ids)
@@ -220,26 +242,40 @@ def sync_domain_lists(
         log.info("Domain rule unchanged — skipping")
         return
 
-    cf.delete_rules(session, base, domain_rules)
-    cf.create_rule(session, base, NAME_PREFIX, traffic, block_page_enabled=False)
+    cf.delete_rules(session, gateway_url, domain_rules)
+    cf.create_rule(
+        session,
+        gateway_url,
+        DOMAIN_NAME_PREFIX,
+        traffic,
+        block_page_enabled=False,
+    )
 
 
 def main() -> None:
     load_dotenv()
     setup_logging()
 
-    token = require_env("CF_API_TOKEN")
+    api_token = require_env("CF_API_TOKEN")
     account_id = require_env("CF_IDENTIFIER")
-    base = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/gateway"
+    gateway_url = (
+        f"https://api.cloudflare.com/client/v4/accounts/{account_id}/gateway"
+    )
 
     session = requests.Session()
-    session.headers["Authorization"] = f"Bearer {token}"
+    session.headers["Authorization"] = f"Bearer {api_token}"
 
     block_urls, tld_url = load_config()
 
     # Block lists: collect the domains, skipping any that failed to download.
-    block_results = {url: fetch(url, parse_domains) for url in block_urls}
-    failed_urls = [url for url, domains in block_results.items() if domains is None]
+    blocked_domains: set[str] = set()
+    failed_urls = []
+    for url in block_urls:
+        domains = fetch(url, parse_domains)
+        if domains is None:
+            failed_urls.append(url)
+        else:
+            blocked_domains |= domains
     if failed_urls:
         log.warning(
             "Skipping %s failed download(s): %s",
@@ -248,48 +284,54 @@ def main() -> None:
         )
 
     # TLD list: if it failed, no TLD rule is kept this run.
-    tld_result = fetch(tld_url, parse_tlds) if tld_url else None
-    tld_set = tld_result or set()
-    if tld_url and tld_result is None:
+    downloaded_tlds = fetch(tld_url, parse_tlds) if tld_url else None
+    if tld_url and downloaded_tlds is None:
         log.warning("TLD list unavailable — no TLD-level blocking this run")
+    blocked_tlds = downloaded_tlds or set()
 
-    all_domains = set().union(*(d for d in block_results.values() if d is not None))
-    all_domains = drop_blocked_tlds(all_domains, tld_set)
+    blocked_domains = drop_blocked_tlds(blocked_domains, blocked_tlds)
 
-    if failed_urls and not all_domains:
+    if failed_urls and not blocked_domains:
         raise SystemExit(
             "All block-list downloads failed — not modifying Cloudflare"
         )
 
-    all_rules = cf.get_rules(session, base)
-    all_lists = cf.get_lists(session, base)
+    account_rules = cf.get_all(session, gateway_url, "rules")
+    account_lists = cf.get_all(session, gateway_url, "lists")
 
-    sync_tld_rule(session, base, all_rules, tld_set)
+    sync_tld_rule(session, gateway_url, account_rules, blocked_tlds)
 
-    if not all_domains:
+    our_lists = cf.with_prefix(account_lists, DOMAIN_NAME_PREFIX)
+
+    if not blocked_domains:
         log.warning("No domains to block — removing existing lists/rule")
-        cf.delete_rules(session, base, cf.rules_with_prefix(all_rules, NAME_PREFIX))
-        cf.delete_lists(session, base, cf.lists_with_prefix(all_lists, NAME_PREFIX))
+        our_rules = cf.with_prefix(account_rules, DOMAIN_NAME_PREFIX)
+        cf.delete_rules(session, gateway_url, our_rules)
+        cf.delete_lists(session, gateway_url, our_lists)
         return
 
-    sorted_domains = sorted(all_domains)
-    chunks = [
-        sorted_domains[i : i + CHUNK_SIZE]
-        for i in range(0, len(sorted_domains), CHUNK_SIZE)
+    sorted_domains = sorted(blocked_domains)
+    domain_chunks = [
+        sorted_domains[start : start + DOMAINS_PER_LIST]
+        for start in range(0, len(sorted_domains), DOMAINS_PER_LIST)
     ]
 
     # Lists that aren't ours still count towards Cloudflare's limit.
-    other_lists = len(all_lists) - len(cf.lists_with_prefix(all_lists, NAME_PREFIX))
-    if len(chunks) + other_lists > MAX_LISTS:
-        raise SystemExit(f"Would exceed {MAX_LISTS} list limit — use smaller block lists")
+    other_list_count = len(account_lists) - len(our_lists)
+    if len(domain_chunks) + other_list_count > MAX_LISTS:
+        raise SystemExit(
+            f"Would exceed {MAX_LISTS} list limit — use smaller block lists"
+        )
 
     log.info(
         "Unique domains: %s → %s lists",
         v(len(sorted_domains)),
-        v(len(chunks)),
+        v(len(domain_chunks)),
     )
 
-    sync_domain_lists(session, base, chunks, all_rules, all_lists)
+    sync_domain_lists(
+        session, gateway_url, domain_chunks, account_rules, account_lists
+    )
 
 
 if __name__ == "__main__":
@@ -297,9 +339,9 @@ if __name__ == "__main__":
         main()
     except KeyboardInterrupt:
         raise SystemExit(130)
-    except cf.CloudflareAPIError as exc:
-        log.critical("Cloudflare API error: %s", exc)
+    except cf.CloudflareAPIError as error:
+        log.critical("Cloudflare API error: %s", error)
         raise SystemExit(64)
-    except Exception as exc:
-        log.critical("Fatal error: %s", exc, exc_info=True)
+    except Exception as error:
+        log.critical("Fatal error: %s", error, exc_info=True)
         raise SystemExit(1)
