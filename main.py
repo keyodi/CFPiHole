@@ -2,6 +2,7 @@ import configparser
 import logging
 import os
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 import requests
@@ -21,7 +22,9 @@ MAX_DOMAINS_PER_LIST = 1000  # Cloudflare Gateway limit
 MAX_DOWNLOAD_BYTES = 10 * 1024 * 1024
 CONFIG_FILE = "config.ini"
 DOWNLOAD_CHUNK_BYTES = 64 * 1024
-DOWNLOAD_TIMEOUT_SECONDS = 15
+DOWNLOAD_TIMEOUT_SECONDS = 60  # Per read, not for the whole download
+DOWNLOAD_ATTEMPTS = 3
+DOWNLOAD_RETRY_DELAY_SECONDS = 3
 
 COMMENT_STARTERS = frozenset("!#;/[")
 HOSTS_FILE_IPS = frozenset(("127.0.0.1", "0.0.0.0"))
@@ -62,33 +65,48 @@ def load_config() -> tuple[list[str], str | None]:
 
 
 def download(url: str) -> bytes | None:
-    """Download a URL (HTTPS only, size-capped). Returns None on failure."""
-    downloaded = bytearray()
+    """Download a URL (HTTPS only, size-capped, retried). None on failure."""
+    for attempt in range(1, DOWNLOAD_ATTEMPTS + 1):
+        downloaded = bytearray()
+        try:
+            with requests.get(
+                url, timeout=DOWNLOAD_TIMEOUT_SECONDS, stream=True
+            ) as response:
+                response.raise_for_status()
 
-    try:
-        with requests.get(
-            url, timeout=DOWNLOAD_TIMEOUT_SECONDS, stream=True
-        ) as response:
-            response.raise_for_status()
-
-            if not response.url.startswith("https://"):
-                log.error("Refused non-HTTPS redirect for %s", highlight(url))
-                return None
-
-            for chunk in response.iter_content(DOWNLOAD_CHUNK_BYTES):
-                downloaded += chunk
-                if len(downloaded) > MAX_DOWNLOAD_BYTES:
-                    log.error("Refused oversized response for %s", highlight(url))
+                if not response.url.startswith("https://"):
+                    log.error("Refused non-HTTPS redirect for %s", highlight(url))
                     return None
 
-    except requests.RequestException as request_error:
-        log.error("Failed downloading %s: %s", highlight(url), highlight(request_error))
-        return None
+                for chunk in response.iter_content(DOWNLOAD_CHUNK_BYTES):
+                    downloaded += chunk
+                    if len(downloaded) > MAX_DOWNLOAD_BYTES:
+                        log.error("Refused oversized response for %s", highlight(url))
+                        return None
 
-    log.info(
-        "Downloaded: %s %s", highlight(url), highlight(f"{len(downloaded) // 1024} KB")
-    )
-    return bytes(downloaded)
+        except requests.RequestException as request_error:
+            if attempt == DOWNLOAD_ATTEMPTS:
+                log.error(
+                    "Failed downloading %s: %s",
+                    highlight(url),
+                    highlight(request_error),
+                )
+                return None
+            log.warning(
+                "Download attempt %s/%s failed for %s: %s",
+                highlight(attempt),
+                highlight(DOWNLOAD_ATTEMPTS),
+                highlight(url),
+                highlight(request_error),
+            )
+            time.sleep(DOWNLOAD_RETRY_DELAY_SECONDS)
+            continue
+
+        size_kb = f"{len(downloaded) // 1024} KB"
+        log.info("Downloaded: %s %s", highlight(url), highlight(size_kb))
+        return bytes(downloaded)
+
+    return None  # Unreachable; keeps type checkers happy.
 
 
 # ──────────────────────────────── Parsing ─────────────────────────────────
