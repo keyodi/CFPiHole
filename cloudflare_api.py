@@ -3,9 +3,7 @@ from typing import Any
 
 import requests
 
-from logger import v as highlight
-
-# ─────────────────────────────── Constants ────────────────────────────────
+from logger import highlight
 
 JsonDict = dict[str, Any]
 
@@ -19,7 +17,8 @@ class CloudflareAPIError(Exception):
     """Raised on any Cloudflare API failure (main.py exits with code 64)."""
 
 
-# ───────────────────────────── Low-level request ──────────────────────────
+# ─────────────────────────────── Requests ─────────────────────────────────
+
 
 def _request(
     session: requests.Session,
@@ -40,13 +39,9 @@ def _request(
         raise CloudflareAPIError(f"Invalid JSON response: {json_error}") from json_error
 
     if not response_body.get("success", True):
-        raise CloudflareAPIError(
-            f"Cloudflare API error: {response_body.get('errors')}"
-        )
+        raise CloudflareAPIError(f"Cloudflare API error: {response_body.get('errors')}")
     return response_body
 
-
-# ───────────────────────────── Reading & filtering ────────────────────────
 
 def get_all(
     session: requests.Session, gateway_url: str, item_kind: str
@@ -70,7 +65,20 @@ def with_prefix(items: list[JsonDict], name_prefix: str) -> list[JsonDict]:
     return [item for item in items if item.get("name", "").startswith(name_prefix)]
 
 
+def delete(
+    session: requests.Session,
+    gateway_url: str,
+    item_kind: str,
+    items: list[JsonDict],
+) -> None:
+    """Delete the given lists or rules (`item_kind` is "lists" or "rules")."""
+    for item in items:
+        _request(session, "DELETE", f"{gateway_url}/{item_kind}/{item['id']}")
+        log.info("Deleted %s: %s", item_kind.removesuffix("s"), highlight(item["name"]))
+
+
 # ──────────────────────────────── Lists ───────────────────────────────────
+
 
 def save_list(
     session: requests.Session,
@@ -79,10 +87,11 @@ def save_list(
     domains: list[str],
     existing_list_id: str | None = None,
 ) -> str:
-    """Update `existing_list_id` if given, else create a DOMAIN list.
+    """Update `existing_list_id` if given, else create a DOMAIN list."""
+    log.debug(
+        "Saving list: %s (%s domains)", highlight(list_name), highlight(len(domains))
+    )
 
-    Returns the list's ID.
-    """
     list_body = {
         "name": list_name,
         "description": DESCRIPTION,
@@ -91,35 +100,15 @@ def save_list(
 
     if existing_list_id:
         _request(session, "PUT", f"{gateway_url}/lists/{existing_list_id}", list_body)
-        list_id = existing_list_id
-    else:
-        list_body["type"] = "DOMAIN"
-        created = _request(session, "POST", f"{gateway_url}/lists", list_body)
-        result = created.get("result")
-        list_id = result.get("id") if isinstance(result, dict) else None
-        if not isinstance(list_id, str):
-            raise CloudflareAPIError("Invalid list response: expected a string 'id'")
+        return existing_list_id
 
-    log.debug(
-        "Saved list: %s (%s domains)", highlight(list_name), highlight(len(domains))
-    )
-    return list_id
+    list_body["type"] = "DOMAIN"
+    created = _request(session, "POST", f"{gateway_url}/lists", list_body)
+    return created["result"]["id"]
 
 
-def delete(
-    session: requests.Session,
-    gateway_url: str,
-    item_kind: str,
-    items: list[JsonDict],
-) -> None:
-    """Delete the given lists or rules (`item_kind` is "lists" or "rules")."""
-    singular_kind = item_kind[:-1]  # "lists" -> "list"
-    for item in items:
-        _request(session, "DELETE", f"{gateway_url}/{item_kind}/{item['id']}")
-        log.info("Deleted %s: %s", singular_kind, highlight(item["name"]))
+# ──────────────────────────────── Rules ───────────────────────────────────
 
-
-# ──────────────────────────── Traffic expressions ─────────────────────────
 
 def domain_traffic(list_ids: list[str]) -> str:
     """Build a traffic expression matching DNS queries for any of the lists."""
@@ -128,48 +117,31 @@ def domain_traffic(list_ids: list[str]) -> str:
 
 def tld_traffic(tlds: list[str]) -> str:
     """Build a traffic expression matching DNS queries ending in any TLD."""
-    tld_pattern = "|".join(tlds)
-    return f'any(dns.domains[*] matches "[.]({tld_pattern})$")'
-
-
-# ──────────────────────────────── Rules ───────────────────────────────────
-
-def _rule_is_up_to_date(
-    rule: JsonDict, traffic_expression: str, block_page_enabled: bool
-) -> bool:
-    """Return True if `rule` already matches the wanted traffic and settings."""
-    rule_settings = rule.get("rule_settings") or {}
-    return (
-        rule.get("traffic") == traffic_expression
-        and rule.get("enabled", True)
-        and bool(rule_settings.get("block_page_enabled")) == block_page_enabled
-    )
+    return f'any(dns.domains[*] matches "[.]({"|".join(tlds)})$")'
 
 
 def ensure_rule(
     session: requests.Session,
     gateway_url: str,
-    gateway_rules: list[JsonDict],
     rule_name: str,
     traffic_expression: str | None,
     block_page_enabled: bool,
 ) -> None:
-    """Make exactly one rule `rule_name` with `traffic_expression` exist.
-
-    If `traffic_expression` is None, any matching rules are removed instead.
-    """
-    existing_rules = with_prefix(gateway_rules, rule_name)
+    """Make exactly one rule `rule_name` with `traffic_expression` exist."""
+    all_rules = get_all(session, gateway_url, "rules")
+    existing_rules = with_prefix(all_rules, rule_name)
 
     # Nothing to do if the single existing rule is already correct.
-    if (
-        traffic_expression
-        and len(existing_rules) == 1
-        and _rule_is_up_to_date(
-            existing_rules[0], traffic_expression, block_page_enabled
-        )
-    ):
-        log.info("Rule unchanged — skipping: %s", highlight(rule_name))
-        return
+    if traffic_expression and len(existing_rules) == 1:
+        rule = existing_rules[0]
+        rule_settings = rule.get("rule_settings") or {}
+        if (
+            rule.get("traffic") == traffic_expression
+            and rule.get("enabled", True)
+            and bool(rule_settings.get("block_page_enabled")) == block_page_enabled
+        ):
+            log.info("Rule unchanged — skipping: %s", highlight(rule_name))
+            return
 
     # Otherwise remove the old rule(s) and, if wanted, create a fresh one.
     delete(session, gateway_url, "rules", existing_rules)
