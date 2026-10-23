@@ -1,6 +1,4 @@
-import copy
 import logging
-
 
 RESET = "\033[0m"
 WHITE = "\033[97m"  # Used for variable values.
@@ -13,24 +11,22 @@ COLORS = {
 }
 
 
-def v(value: object) -> str:
+def highlight(value: object) -> str:
     """Wrap a variable value in white in a colored log line."""
     return f"{WHITE}{value}{RESET}"
 
 
 class ColorFormatter(logging.Formatter):
-    """Format log messages with a color based on their severity."""
+    """Color each log line by severity."""
 
     def format(self, record: logging.LogRecord) -> str:
         color = COLORS.get(record.levelno, RESET)
-        record = copy.copy(record)
-        message = record.getMessage().replace(RESET, RESET + color)
-        record.msg = f"{color}{message}{RESET}"
-        record.args = None
-        return super().format(record)
+        message = super().format(record)
+        # Re-apply the line color after every highlighted value.
+        return f"{color}{message.replace(RESET, RESET + color)}{RESET}"
 
 
-def setup() -> None:
+def setup_logging() -> None:
     """Call once at startup to configure the root handler."""
     handler = logging.StreamHandler()
     handler.setFormatter(ColorFormatter("%(message)s"))
