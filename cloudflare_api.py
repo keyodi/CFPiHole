@@ -17,9 +17,6 @@ class CloudflareAPIError(Exception):
     """Raised on any Cloudflare API failure (main.py exits with code 64)."""
 
 
-# ─────────────────────────────── Requests ─────────────────────────────────
-
-
 def _request(
     session: requests.Session,
     method: str,
@@ -74,10 +71,7 @@ def delete(
     """Delete the given lists or rules (`item_kind` is "lists" or "rules")."""
     for item in items:
         _request(session, "DELETE", f"{gateway_url}/{item_kind}/{item['id']}")
-        log.info("Deleted %s: %s", item_kind.removesuffix("s"), highlight(item["name"]))
-
-
-# ──────────────────────────────── Lists ───────────────────────────────────
+        log.debug("Deleted %s: %s", item_kind.removesuffix("s"), highlight(item["name"]))
 
 
 def save_list(
@@ -105,9 +99,6 @@ def save_list(
     list_body["type"] = "DOMAIN"
     created = _request(session, "POST", f"{gateway_url}/lists", list_body)
     return created["result"]["id"]
-
-
-# ──────────────────────────────── Rules ───────────────────────────────────
 
 
 def domain_traffic(list_ids: list[str]) -> str:
