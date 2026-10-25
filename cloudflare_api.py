@@ -7,7 +7,7 @@ from logger import highlight
 
 JsonDict = dict[str, Any]
 
-DESCRIPTION = "Created by CFPiHole."
+ITEM_DESCRIPTION = "Created by CFPiHole."
 REQUEST_TIMEOUT_SECONDS = 15
 
 log = logging.getLogger("cfpihole")
@@ -40,7 +40,7 @@ def _request(
     return response_body
 
 
-def get_all(
+def get_all_items(
     session: requests.Session, gateway_url: str, item_kind: str
 ) -> list[JsonDict]:
     """Return every Gateway item of a kind ("lists" or "rules")."""
@@ -57,12 +57,12 @@ def get_all(
     return items
 
 
-def with_prefix(items: list[JsonDict], name_prefix: str) -> list[JsonDict]:
+def filter_by_prefix(items: list[JsonDict], name_prefix: str) -> list[JsonDict]:
     """Return the items whose name starts with `name_prefix`."""
     return [item for item in items if item.get("name", "").startswith(name_prefix)]
 
 
-def delete(
+def delete_items(
     session: requests.Session,
     gateway_url: str,
     item_kind: str,
@@ -86,27 +86,27 @@ def save_list(
         "Saving list: %s (%s domains)", highlight(list_name), highlight(len(domains))
     )
 
-    list_body = {
+    list_payload = {
         "name": list_name,
-        "description": DESCRIPTION,
+        "description": ITEM_DESCRIPTION,
         "items": [{"value": domain} for domain in domains],
     }
 
     if existing_list_id:
-        _request(session, "PUT", f"{gateway_url}/lists/{existing_list_id}", list_body)
+        _request(session, "PUT", f"{gateway_url}/lists/{existing_list_id}", list_payload)
         return existing_list_id
 
-    list_body["type"] = "DOMAIN"
-    created = _request(session, "POST", f"{gateway_url}/lists", list_body)
-    return created["result"]["id"]
+    list_payload["type"] = "DOMAIN"
+    create_response = _request(session, "POST", f"{gateway_url}/lists", list_payload)
+    return create_response["result"]["id"]
 
 
-def domain_traffic(list_ids: list[str]) -> str:
+def build_domain_traffic(list_ids: list[str]) -> str:
     """Build a traffic expression matching DNS queries for any of the lists."""
     return " or ".join(f"any(dns.domains[*] in ${list_id})" for list_id in list_ids)
 
 
-def tld_traffic(tlds: list[str]) -> str:
+def build_tld_traffic(tlds: list[str]) -> str:
     """Build a traffic expression matching DNS queries ending in any TLD."""
     return f'any(dns.domains[*] matches "[.]({"|".join(tlds)})$")'
 
@@ -119,28 +119,28 @@ def ensure_rule(
     block_page_enabled: bool,
 ) -> None:
     """Make exactly one rule `rule_name` with `traffic_expression` exist."""
-    all_rules = get_all(session, gateway_url, "rules")
-    existing_rules = with_prefix(all_rules, rule_name)
+    all_rules = get_all_items(session, gateway_url, "rules")
+    existing_rules = filter_by_prefix(all_rules, rule_name)
 
     # Nothing to do if the single existing rule is already correct.
     if traffic_expression and len(existing_rules) == 1:
-        rule = existing_rules[0]
-        rule_settings = rule.get("rule_settings") or {}
+        existing_rule = existing_rules[0]
+        existing_settings = existing_rule.get("rule_settings") or {}
         if (
-            rule.get("traffic") == traffic_expression
-            and rule.get("enabled", True)
-            and bool(rule_settings.get("block_page_enabled")) == block_page_enabled
+            existing_rule.get("traffic") == traffic_expression
+            and existing_rule.get("enabled", True)
+            and bool(existing_settings.get("block_page_enabled")) == block_page_enabled
         ):
             log.info("Rule unchanged — skipping: %s", highlight(rule_name))
             return
 
     # Otherwise remove the old rule(s) and, if wanted, create a fresh one.
-    delete(session, gateway_url, "rules", existing_rules)
+    delete_items(session, gateway_url, "rules", existing_rules)
 
     if traffic_expression:
         rule_payload = {
             "name": rule_name,
-            "description": DESCRIPTION,
+            "description": ITEM_DESCRIPTION,
             "action": "block",
             "enabled": True,
             "filters": ["dns"],
