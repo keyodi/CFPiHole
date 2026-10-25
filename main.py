@@ -10,10 +10,10 @@ from dotenv import load_dotenv
 import cloudflare_api as cloudflare
 from logger import highlight, setup_logging
 
-DOMAIN_LIST_PREFIX = "[CFPihole] Block Ads"
-TLD_RULE_PREFIX = "[CFPihole] Block TLDs"
+AD_BLOCK_PREFIX = "[CFPiHole] Block Ads"
+TLD_BLOCK_PREFIX = "[CFPiHole] Block TLDs"
 
-MAX_LISTS_PER_ACCOUNT = 300
+MAX_GATEWAY_LISTS = 300
 MAX_DOMAINS_PER_LIST = 1000
 
 MAX_DOWNLOAD_BYTES = 10 * 1024 * 1024
@@ -23,12 +23,12 @@ DOWNLOAD_TIMEOUT_SECONDS = 60
 
 COMMENT_STARTERS = frozenset("!#;/[")
 HOSTS_FILE_IPS = frozenset(("127.0.0.1", "0.0.0.0"))
-HOSTS_DETECTION_LINES = 30
+HOST_SAMPLE_LINES = 30
 
 log = logging.getLogger("cfpihole")
 
 
-def load_config() -> tuple[list[str], str | None]:
+def load_list_sources() -> tuple[list[str], str | None]:
     """Read config.ini and return (block_list_urls, tld_list_url)."""
     parser = configparser.ConfigParser(interpolation=None)
     try:
@@ -53,7 +53,7 @@ def load_config() -> tuple[list[str], str | None]:
     return unique_block_urls, (tld_urls[0] if tld_urls else None)
 
 
-def download(url: str) -> bytes | None:
+def fetch_url(url: str) -> bytes | None:
     """Download a URL. Return None on failure."""
     downloaded = bytearray()
     try:
@@ -90,7 +90,7 @@ def clean_lines(raw_bytes: bytes) -> list[str]:
     return [line for line in lines if line and line[0] not in COMMENT_STARTERS]
 
 
-def parse_tlds(raw_bytes: bytes) -> set[str]:
+def extract_tlds(raw_bytes: bytes) -> set[str]:
     """Return the set of TLDs found in `raw_bytes`."""
     tlds = set()
     for line in clean_lines(raw_bytes):
@@ -100,11 +100,11 @@ def parse_tlds(raw_bytes: bytes) -> set[str]:
     return tlds
 
 
-def parse_domains(raw_bytes: bytes) -> set[str]:
+def extract_domains(raw_bytes: bytes) -> set[str]:
     """Return the set of domains in a plain-domain list or a hosts file."""
     rows = [line.split() for line in clean_lines(raw_bytes)]
 
-    sample = rows[:HOSTS_DETECTION_LINES]
+    sample = rows[:HOST_SAMPLE_LINES]
     hosts_ip_rows = sum(row[0] in HOSTS_FILE_IPS for row in sample)
     is_hosts_file = hosts_ip_rows * 2 > len(sample)
 
@@ -117,7 +117,7 @@ def parse_domains(raw_bytes: bytes) -> set[str]:
     return {row[0].rstrip(".") for row in rows}
 
 
-def sync_domain_lists(
+def sync_gateway_lists(
     session: requests.Session,
     gateway_url: str,
     domain_chunks: list[list[str]],
@@ -126,10 +126,10 @@ def sync_domain_lists(
     """Make Cloudflare hold exactly one list per chunk, plus one rule."""
     existing_by_name = {
         gateway_list["name"]: gateway_list
-        for gateway_list in cloudflare.with_prefix(gateway_lists, DOMAIN_LIST_PREFIX)
+        for gateway_list in cloudflare.with_prefix(gateway_lists, AD_BLOCK_PREFIX)
     }
     wanted_names = [
-        f"{DOMAIN_LIST_PREFIX} {number}" for number in range(1, len(domain_chunks) + 1)
+        f"{AD_BLOCK_PREFIX} {number}" for number in range(1, len(domain_chunks) + 1)
     ]
 
     surplus_lists = [
@@ -138,7 +138,7 @@ def sync_domain_lists(
         if name not in wanted_names
     ]
     if surplus_lists:
-        cloudflare.ensure_rule(session, gateway_url, DOMAIN_LIST_PREFIX, None, False)
+        cloudflare.ensure_rule(session, gateway_url, AD_BLOCK_PREFIX, None, False)
         cloudflare.delete(session, gateway_url, "lists", surplus_lists)
 
     if domain_chunks:
@@ -154,17 +154,17 @@ def sync_domain_lists(
 
     rule_traffic = cloudflare.domain_traffic(list_ids) if list_ids else None
     cloudflare.ensure_rule(
-        session, gateway_url, DOMAIN_LIST_PREFIX, rule_traffic, False
+        session, gateway_url, AD_BLOCK_PREFIX, rule_traffic, False
     )
 
 
-def collect(
+def fetch_and_parse_lists(
     block_urls: list[str], tld_url: str | None
 ) -> tuple[set[str], set[str], list[str]]:
     """Download and parse everything. Returns (domains, tlds, failed_urls)."""
     with ThreadPoolExecutor() as pool:
-        tld_future = pool.submit(download, tld_url) if tld_url else None
-        block_downloads = list(pool.map(download, block_urls))
+        tld_future = pool.submit(fetch_url, tld_url) if tld_url else None
+        block_downloads = list(pool.map(fetch_url, block_urls))
     tld_bytes = tld_future.result() if tld_future else None
 
     all_domains: set[str] = set()
@@ -173,11 +173,11 @@ def collect(
         if raw_bytes is None:
             failed_urls.append(url)
         else:
-            all_domains |= parse_domains(raw_bytes)
+            all_domains |= extract_domains(raw_bytes)
 
     tlds: set[str] = set()
     if tld_bytes is not None:
-        tlds = parse_tlds(tld_bytes)
+        tlds = extract_tlds(tld_bytes)
     elif tld_url:
         failed_urls.append(tld_url)
 
@@ -199,9 +199,9 @@ def main() -> None:
     session = requests.Session()
     session.headers["Authorization"] = f"Bearer {api_token}"
 
-    block_urls, tld_url = load_config()
+    block_urls, tld_url = load_list_sources()
 
-    all_domains, tlds, failed_urls = collect(block_urls, tld_url)
+    all_domains, tlds, failed_urls = fetch_and_parse_lists(block_urls, tld_url)
     if failed_urls:
         sys.exit(
             f"{len(failed_urls)} download(s) failed — not modifying Cloudflare: "
@@ -219,11 +219,11 @@ def main() -> None:
     ]
 
     gateway_lists = cloudflare.get_all(session, gateway_url, "lists")
-    our_list_count = len(cloudflare.with_prefix(gateway_lists, DOMAIN_LIST_PREFIX))
+    our_list_count = len(cloudflare.with_prefix(gateway_lists, AD_BLOCK_PREFIX))
     other_list_count = len(gateway_lists) - our_list_count
-    if len(domain_chunks) + other_list_count > MAX_LISTS_PER_ACCOUNT:
+    if len(domain_chunks) + other_list_count > MAX_GATEWAY_LISTS:
         sys.exit(
-            f"Would exceed {MAX_LISTS_PER_ACCOUNT} list limit "
+            f"Would exceed {MAX_GATEWAY_LISTS} list limit "
             "— use smaller block lists"
         )
 
@@ -238,10 +238,10 @@ def main() -> None:
 
     tld_rule_traffic = cloudflare.tld_traffic(sorted(tlds)) if tlds else None
     cloudflare.ensure_rule(
-        session, gateway_url, TLD_RULE_PREFIX, tld_rule_traffic, True
+        session, gateway_url, TLD_BLOCK_PREFIX, tld_rule_traffic, True
     )
 
-    sync_domain_lists(session, gateway_url, domain_chunks, gateway_lists)
+    sync_gateway_lists(session, gateway_url, domain_chunks, gateway_lists)
 
 
 if __name__ == "__main__":
