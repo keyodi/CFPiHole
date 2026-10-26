@@ -44,7 +44,9 @@ def load_list_sources() -> tuple[list[str], str | None]:
         else []
     )
     tld_urls = (
-        list(config_parser["TLDList"].values()) if "TLDList" in config_parser else []
+        list(config_parser["TLDList"].values())
+        if "TLDList" in config_parser
+        else []
     )
 
     if not block_urls and not tld_urls:
