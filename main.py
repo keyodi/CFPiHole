@@ -102,8 +102,8 @@ def extract_tlds(raw_bytes: bytes) -> set[str]:
     """Return the set of TLDs found in `raw_bytes`."""
     tlds = set()
     for line in clean_lines(raw_bytes):
-        candidate = "".join(char for char in line if char.isalnum() or char in "-.")
-        if tld := candidate.strip("."):
+        tld = "".join(char for char in line if char.isalnum() or char in "-.")
+        if tld := tld.strip("."):
             tlds.add(tld)
     return tlds
 
