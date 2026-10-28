@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 import cloudflare_api as cloudflare
 from logger import highlight, setup_logging
 
-AD_BLOCK_PREFIX = "[CFPihole] Block Ads"
+AD_BLOCK_PREFIX = "[CFPiHole] Block Ads"
 TLD_BLOCK_PREFIX = "[CFPiHole] Block TLDs"
 
 MAX_GATEWAY_LISTS = 300
