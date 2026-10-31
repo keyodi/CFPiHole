@@ -2,7 +2,7 @@ import logging
 
 RESET = "\033[0m"
 WHITE = "\033[97m"  # Used for variable values.
-LEVEL_COLORS = {
+COLORS = {
     logging.DEBUG: "\033[36m",  # Cyan.
     logging.INFO: "\033[32m",  # Green.
     logging.WARNING: "\033[33m",  # Yellow.
@@ -20,14 +20,14 @@ class ColorFormatter(logging.Formatter):
     """Color each log line by severity."""
 
     def format(self, record: logging.LogRecord) -> str:
-        level_color = LEVEL_COLORS.get(record.levelno, RESET)
+        color = COLORS.get(record.levelno, RESET)
         message = super().format(record)
         # Re-apply the line color after every highlighted value.
-        return f"{level_color}{message.replace(RESET, RESET + level_color)}{RESET}"
+        return f"{color}{message.replace(RESET, RESET + color)}{RESET}"
 
 
 def setup_logging() -> None:
     """Call once at startup to configure the root handler."""
-    stream_handler = logging.StreamHandler()
-    stream_handler.setFormatter(ColorFormatter("%(message)s"))
-    logging.basicConfig(level=logging.INFO, handlers=[stream_handler])
+    handler = logging.StreamHandler()
+    handler.setFormatter(ColorFormatter("%(message)s"))
+    logging.basicConfig(level=logging.INFO, handlers=[handler])
