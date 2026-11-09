@@ -49,26 +49,25 @@ def _request(
         r.raise_for_status()
         body = r.json()
     except requests.RequestException as e:
-        raise CloudflareAPIError("Request failed: %s" % e) from e
+        raise CloudflareAPIError(f"Request failed: {e}") from e
     except ValueError as e:
-        raise CloudflareAPIError("Invalid JSON response: %s" % e) from e
+        raise CloudflareAPIError(f"Invalid JSON response: {e}") from e
 
     if not body.get("success", True):
-        raise CloudflareAPIError("Cloudflare API error: %s" % body.get("errors"))
+        raise CloudflareAPIError(f"Cloudflare API error: {body.get('errors')}")
     return body
 
 
 def get_items(session: requests.Session, base_url: str, kind: str) -> list[JsonDict]:
     """Return every Gateway item of a kind ("lists" or "rules")."""
-    body = _request(session, "GET", "%s/%s" % (base_url, kind))
+    body = _request(session, "GET", f"{base_url}/{kind}")
 
     items = body.get("result") or []
     total = (body.get("result_info") or {}).get("total_count")
 
     if total is not None and total > len(items):
         raise CloudflareAPIError(
-            "Incomplete response for %s: got %s of %s items"
-            % (kind, len(items), total)
+            f"Incomplete response for {kind}: got {len(items)} of {total} items"
         )
     return items
 
@@ -88,7 +87,7 @@ def check_list_limit(cf_lists: list[JsonDict], needed: int) -> None:
     others = len(cf_lists) - managed
     if needed + others > MAX_LISTS:
         raise CloudflareAPIError(
-            "Would exceed %s list limit — use smaller block lists" % MAX_LISTS
+            f"Would exceed {MAX_LISTS} list limit — use smaller block lists"
         )
 
 
@@ -100,7 +99,7 @@ def delete_items(
 ) -> None:
     """Delete the given lists or rules (`kind` is "lists" or "rules")."""
     for item in items:
-        _request(session, "DELETE", "%s/%s/%s" % (base_url, kind, item["id"]))
+        _request(session, "DELETE", f"{base_url}/{kind}/{item['id']}")
         logger.debug("Deleted %s: %s", kind.removesuffix("s"), highlight(item["name"]))
 
 
@@ -123,22 +122,23 @@ def save_list(
     }
 
     if list_id:
-        _request(session, "PUT", "%s/lists/%s" % (base_url, list_id), payload)
+        _request(session, "PUT", f"{base_url}/lists/{list_id}", payload)
         return list_id
 
     payload["type"] = "DOMAIN"
-    body = _request(session, "POST", "%s/lists" % base_url, payload)
+    body = _request(session, "POST", f"{base_url}/lists", payload)
     return body["result"]["id"]
 
 
 def build_list_traffic(list_ids: list[str]) -> str:
     """Build a traffic expression matching DNS queries for any of the lists."""
-    return " or ".join("any(dns.domains[*] in $%s)" % i for i in list_ids)
+    return " or ".join(f"any(dns.domains[*] in ${i})" for i in list_ids)
 
 
 def build_tld_traffic(tlds: list[str]) -> str:
     """Build a traffic expression matching DNS queries ending in any TLD."""
-    return 'any(dns.domains[*] matches "[.](%s)$")' % "|".join(tlds)
+    tld_pattern = "|".join(tlds)
+    return f'any(dns.domains[*] matches "[.]({tld_pattern})$")'
 
 
 def ensure_policy(
@@ -177,7 +177,7 @@ def ensure_policy(
             "traffic": traffic,
             "rule_settings": {"block_page_enabled": block_page},
         }
-        _request(session, "POST", "%s/rules" % base_url, payload)
+        _request(session, "POST", f"{base_url}/rules", payload)
         logger.info("Created policy: %s", highlight(name))
 
 
@@ -189,7 +189,7 @@ def sync_lists(
 ) -> None:
     """Make Cloudflare hold exactly one list per chunk, plus one policy."""
     cf_by_name = {l["name"]: l for l in filter_by_prefix(cf_lists, AD_PREFIX)}
-    names = ["%s %s" % (AD_PREFIX, i) for i in range(1, len(chunks) + 1)]
+    names = [f"{AD_PREFIX} {i}" for i in range(1, len(chunks) + 1)]
 
     surplus = [l for name, l in cf_by_name.items() if name not in names]
     if surplus:
