@@ -28,20 +28,20 @@ def load_config() -> tuple[list[str], str | None]:
     try:
         read = config.read(CONFIG_PATH)
     except configparser.Error as e:
-        sys.exit("Invalid %s: %s" % (CONFIG_PATH, e))
+        sys.exit(f"Invalid {CONFIG_PATH}: {e}")
     if not read:
-        sys.exit("Config file not found: %s" % CONFIG_PATH)
+        sys.exit(f"Config file not found: {CONFIG_PATH}")
 
     block_urls = list(config["BlockLists"].values()) if "BlockLists" in config else []
     tld_urls = list(config["TLDList"].values()) if "TLDList" in config else []
 
     if not block_urls and not tld_urls:
-        sys.exit("%s has no [BlockLists] or [TLDList] entries" % CONFIG_PATH)
+        sys.exit(f"{CONFIG_PATH} has no [BlockLists] or [TLDList] entries")
     if len(tld_urls) > 1:
         sys.exit("Only one URL is supported in [TLDList]")
     for url in block_urls + tld_urls:
         if not url.startswith("https://"):
-            sys.exit("URL must use https://: %s" % url)
+            sys.exit(f"URL must use https://: {url}")
 
     return list(dict.fromkeys(block_urls)), (tld_urls[0] if tld_urls else None)
 
@@ -153,8 +153,7 @@ def main() -> None:
     all_domains, tlds, failed = download_sources(block_urls, tld_url)
     if failed:
         sys.exit(
-            "%s download(s) failed — not modifying Cloudflare: %s"
-            % (len(failed), ", ".join(failed))
+            f"{len(failed)} download(s) failed — not modifying Cloudflare: {', '.join(failed)}"
         )
 
     suffixes = tuple("." + t for t in tlds)
@@ -189,7 +188,7 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         sys.exit(130)
     except cloudflare.CloudflareAPIError as e:
-        logger.critical("Cloudflare API error: %s", e)
+        logger.critical("Critical Cloudflare API error: %s", e)
         sys.exit(64)
     except Exception as e:
         logger.critical("Fatal error: %s", e, exc_info=True)
