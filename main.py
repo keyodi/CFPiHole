@@ -163,8 +163,6 @@ def main() -> None:
     chunks = [domains[i : i + n] for i in range(0, len(domains), n)]
 
     cf_lists = cloudflare.get_items(session, base_url, "lists")
-    cloudflare.check_list_limit(cf_lists, len(chunks))
-
     if domains:
         logger.info(
             "Unique domains: %s → %s lists",
@@ -173,6 +171,14 @@ def main() -> None:
         )
     else:
         logger.warning("No domains to block — removing existing lists/policy")
+
+    logger.info("Lists to create or update: %s", highlight(len(chunks)))
+    if not cloudflare.check_list_limit(cf_lists, len(chunks)):
+        logger.info(
+            "More than %s Cloudflare lists would be needed; stopping without changes",
+            highlight(cloudflare.MAX_LISTS),
+        )
+        return
 
     tld_traffic = cloudflare.build_tld_traffic(sorted(tlds)) if tlds else None
     cloudflare.ensure_policy(

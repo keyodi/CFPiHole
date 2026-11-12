@@ -77,18 +77,15 @@ def filter_by_prefix(items: list[JsonDict], prefix: str) -> list[JsonDict]:
     return [i for i in items if i.get("name", "").startswith(prefix)]
 
 
-def check_list_limit(cf_lists: list[JsonDict], needed: int) -> None:
-    """Raise if `needed` managed lists would exceed the account limit.
+def check_list_limit(cf_lists: list[JsonDict], needed: int) -> bool:
+    """Return whether replacing managed lists with `needed` stays within the limit.
 
     Lists not managed by this tool count against the limit but are never
     touched, so only the managed ones are replaced by `needed`.
     """
     managed = len(filter_by_prefix(cf_lists, AD_PREFIX))
     others = len(cf_lists) - managed
-    if needed + others > MAX_LISTS:
-        raise CloudflareAPIError(
-            f"Would exceed {MAX_LISTS} list limit — use smaller block lists"
-        )
+    return needed + others <= MAX_LISTS
 
 
 def delete_items(
@@ -198,7 +195,7 @@ def sync_lists(
         delete_items(session, base_url, "lists", surplus)
 
     if chunks:
-        logger.info("Updating lists, please wait")
+        logger.info("Creating/updating %s lists, please wait", highlight(len(chunks)))
 
     list_ids = []
     for name, domains in zip(names, chunks):
