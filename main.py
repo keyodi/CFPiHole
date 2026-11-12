@@ -172,8 +172,9 @@ def main() -> None:
     else:
         logger.warning("No domains to block — removing existing lists/policy")
 
-    logger.info("Lists to create or update: %s", highlight(len(chunks)))
+
     if not cloudflare.check_list_limit(cf_lists, len(chunks)):
+        logger.info("Lists to create or update: %s", highlight(len(chunks)))
         logger.info(
             "More than %s Cloudflare lists would be needed; stopping without changes",
             highlight(cloudflare.MAX_LISTS),
