@@ -56,29 +56,27 @@ def download_url(url: str) -> bytes | None:
                 r.raise_for_status()
 
                 if not r.url.startswith("https://"):
-                    logger.error("Refused non-HTTPS redirect for %s", highlight(url))
+                    logger.error(f"Refused non-HTTPS redirect for {highlight(url)}")
                     return None
 
                 for chunk in r.iter_content(CHUNK_BYTES):
                     buffer += chunk
                     if len(buffer) > MAX_BYTES:
-                        logger.error("Refused oversized response for %s", highlight(url))
+                        logger.error(f"Refused oversized response for {highlight(url)}")
                         return None
 
         except requests.RequestException as e:
-            logger.error("Failed downloading %s: %s", highlight(url), highlight(e))
+            logger.error(f"Failed downloading {highlight(url)}: {highlight(e)}")
             if attempt < MAX_DOWNLOAD_RETRIES:
                 logger.warning(
-                    "Retrying download for %s (retry %s/%s)",
-                    highlight(url),
-                    attempt + 1,
-                    MAX_DOWNLOAD_RETRIES,
+                    f"Retrying download for {highlight(url)} "
+                    f"(retry {attempt + 1}/{MAX_DOWNLOAD_RETRIES})"
                 )
                 continue
             return None
 
         size = f"{len(buffer) // 1024} KB"
-        logger.info("Downloaded: %s %s", highlight(url), highlight(size))
+        logger.info(f"Downloaded: {highlight(url)} {highlight(size)}")
         return bytes(buffer)
 
     return None
@@ -177,18 +175,14 @@ def main() -> None:
     cf_lists = cloudflare.get_items(session, base_url, "lists")
     if domains:
         logger.info(
-            "Unique domains: %s → %s lists",
-            highlight(len(domains)),
-            highlight(len(chunks)),
+            f"Unique domains: {highlight(len(domains))} → {highlight(len(chunks))} lists"
         )
     else:
         logger.warning("No domains to block — removing existing lists/policy")
 
-
     if not cloudflare.check_list_limit(cf_lists, len(chunks)):
         logger.info(
-            "More than %s Cloudflare lists would be needed; stopping without changes",
-            highlight(cloudflare.MAX_LISTS),
+            f"More than {highlight(cloudflare.MAX_LISTS)} Cloudflare lists would be needed; stopping without changes"
         )
         return
 
@@ -206,8 +200,8 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         sys.exit(130)
     except cloudflare.CloudflareAPIError as e:
-        logger.critical("Critical Cloudflare API error: %s", e)
+        logger.critical(f"Critical Cloudflare API error: {e}")
         sys.exit(64)
     except Exception as e:
-        logger.critical("Fatal error: %s", e, exc_info=True)
+        logger.critical(f"Fatal error: {e}", exc_info=True)
         sys.exit(1)
