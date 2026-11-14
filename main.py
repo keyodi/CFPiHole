@@ -14,6 +14,7 @@ MAX_BYTES = 10 * 1024 * 1024
 CONFIG_PATH = "config.ini"
 CHUNK_BYTES = 64 * 1024
 DOWNLOAD_TIMEOUT = 60
+MAX_DOWNLOAD_RETRIES = 3
 
 COMMENT_CHARS = frozenset("!#;/[")
 HOSTS_IPS = frozenset(("127.0.0.1", "0.0.0.0"))
@@ -47,29 +48,43 @@ def load_config() -> tuple[list[str], str | None]:
 
 
 def download_url(url: str) -> bytes | None:
-    """Download a URL. Return None on failure."""
-    buffer = bytearray()
-    try:
-        with requests.get(url, timeout=DOWNLOAD_TIMEOUT, stream=True) as r:
-            r.raise_for_status()
+    """Download a URL, retrying up to MAX_DOWNLOAD_RETRIES times on failure."""
+    for attempt in range(MAX_DOWNLOAD_RETRIES + 1):
+        buffer = bytearray()
+        failed = False
+        try:
+            with requests.get(url, timeout=DOWNLOAD_TIMEOUT, stream=True) as r:
+                r.raise_for_status()
 
-            if not r.url.startswith("https://"):
-                logger.error("Refused non-HTTPS redirect for %s", highlight(url))
-                return None
+                if not r.url.startswith("https://"):
+                    logger.error("Refused non-HTTPS redirect for %s", highlight(url))
+                    failed = True
+                else:
+                    for chunk in r.iter_content(CHUNK_BYTES):
+                        buffer += chunk
+                        if len(buffer) > MAX_BYTES:
+                            logger.error("Refused oversized response for %s", highlight(url))
+                            failed = True
+                            break
 
-            for chunk in r.iter_content(CHUNK_BYTES):
-                buffer += chunk
-                if len(buffer) > MAX_BYTES:
-                    logger.error("Refused oversized response for %s", highlight(url))
-                    return None
+        except requests.RequestException as e:
+            logger.error("Failed downloading %s: %s", highlight(url), highlight(e))
+            failed = True
 
-    except requests.RequestException as e:
-        logger.error("Failed downloading %s: %s", highlight(url), highlight(e))
-        return None
+        if not failed:
+            size = f"{len(buffer) // 1024} KB"
+            logger.info("Downloaded: %s %s", highlight(url), highlight(size))
+            return bytes(buffer)
 
-    size = f"{len(buffer) // 1024} KB"
-    logger.info("Downloaded: %s %s", highlight(url), highlight(size))
-    return bytes(buffer)
+        if attempt < MAX_DOWNLOAD_RETRIES:
+            logger.warning(
+                "Retrying download for %s (retry %s/%s)",
+                highlight(url),
+                attempt + 1,
+                MAX_DOWNLOAD_RETRIES,
+            )
+
+    return None
 
 
 def clean_lines(data: bytes) -> list[str]:
