@@ -2,7 +2,6 @@ import configparser
 import logging
 import os
 import sys
-from concurrent.futures import ThreadPoolExecutor
 
 import requests
 from dotenv import load_dotenv
@@ -41,7 +40,7 @@ def load_config() -> tuple[list[str], str | None]:
         if not url.startswith("https://"):
             sys.exit(f"URL must use https://: {url}")
 
-    return list(dict.fromkeys(block_urls)), (tld_urls[0] if tld_urls else None)
+    return list(dict.fromkeys(block_urls)), tld_urls[0] if tld_urls else None
 
 
 def download_url(url: str) -> bytes | None:
@@ -122,26 +121,23 @@ def download_sources(
     block_urls: list[str], tld_url: str | None
 ) -> tuple[set[str], set[str], list[str]]:
     """Download and parse everything. Returns (domains, tlds, failed_urls)."""
-    with ThreadPoolExecutor() as executor:
-        tld_future = executor.submit(download_url, tld_url) if tld_url else None
-        block_data = list(executor.map(download_url, block_urls))
-
-    tld_data = tld_future.result() if tld_future else None
-
     domains: set[str] = set()
+    tlds: set[str] = set()
     failed: list[str] = []
 
-    for url, data in zip(block_urls, block_data):
+    for url in block_urls:
+        data = download_url(url)
         if data is None:
             failed.append(url)
         else:
             domains |= parse_domains(data)
 
-    tlds: set[str] = set()
-    if tld_data is not None:
-        tlds = parse_tlds(tld_data)
-    elif tld_url:
-        failed.append(tld_url)
+    if tld_url:
+        data = download_url(tld_url)
+        if data is None:
+            failed.append(tld_url)
+        else:
+            tlds = parse_tlds(data)
 
     return domains, tlds, failed
 
@@ -158,8 +154,9 @@ def main() -> None:
     if not account_id:
         sys.exit("Missing CF_IDENTIFIER")
 
-    session = cloudflare.create_session(token)
-    base_url = cloudflare.build_base_url(account_id)
+    session = requests.Session()
+    session.headers["Authorization"] = f"Bearer {token}"
+    base_url = f"{cloudflare.API_URL}/accounts/{account_id}/gateway"
 
     block_urls, tld_url = load_config()
     all_domains, tlds, failed = download_sources(block_urls, tld_url)
