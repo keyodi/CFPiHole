@@ -14,7 +14,6 @@ TIMEOUT = 15
 AD_PREFIX = "[CFPiHole] Block Ads"
 TLD_PREFIX = "[CFPiHole] Block TLDs"
 
-# Cloudflare Zero Trust account limits.
 MAX_LISTS = 300
 MAX_DOMAINS = 1000
 
@@ -22,7 +21,8 @@ logger = logging.getLogger("cfpihole")
 
 
 class CloudflareAPIError(Exception):
-    """Raised on any Cloudflare API failure (main.py exits with code 64)."""
+    """Raised on any Cloudflare API failure."""
+    pass
 
 
 def create_session(token: str) -> requests.Session:
@@ -37,7 +37,7 @@ def build_base_url(account_id: str) -> str:
     return f"{API_URL}/accounts/{account_id}/gateway"
 
 
-def _request(
+def request(
     session: requests.Session,
     method: str,
     url: str,
@@ -45,13 +45,13 @@ def _request(
 ) -> JsonDict:
     """Send a request and return the decoded JSON body, or raise on failure."""
     try:
-        r = session.request(method, url, json=payload, timeout=TIMEOUT)
-        r.raise_for_status()
-        body = r.json()
-    except requests.RequestException as e:
-        raise CloudflareAPIError(f"Request failed: {e}") from e
-    except ValueError as e:
-        raise CloudflareAPIError(f"Invalid JSON response: {e}") from e
+        response = session.request(method, url, json=payload, timeout=TIMEOUT)
+        response.raise_for_status()
+        body = response.json()
+    except requests.RequestException as exc:
+        raise CloudflareAPIError(f"Request failed: {exc}") from exc
+    except ValueError as exc:
+        raise CloudflareAPIError(f"Invalid JSON response: {exc}") from exc
 
     if not body.get("success", True):
         raise CloudflareAPIError(f"Cloudflare API error: {body.get('errors')}")
@@ -60,8 +60,7 @@ def _request(
 
 def get_items(session: requests.Session, base_url: str, kind: str) -> list[JsonDict]:
     """Return every Gateway item of a kind ("lists" or "rules")."""
-    body = _request(session, "GET", f"{base_url}/{kind}")
-
+    body = request(session, "GET", f"{base_url}/{kind}")
     items = body.get("result") or []
     total = (body.get("result_info") or {}).get("total_count")
 
@@ -74,15 +73,11 @@ def get_items(session: requests.Session, base_url: str, kind: str) -> list[JsonD
 
 def filter_by_prefix(items: list[JsonDict], prefix: str) -> list[JsonDict]:
     """Return the items whose name starts with `prefix`."""
-    return [i for i in items if i.get("name", "").startswith(prefix)]
+    return [item for item in items if item.get("name", "").startswith(prefix)]
 
 
 def check_list_limit(cf_lists: list[JsonDict], needed: int) -> bool:
-    """Return whether replacing managed lists with `needed` stays within the limit.
-
-    Lists not managed by this tool count against the limit but are never
-    touched, so only the managed ones are replaced by `needed`.
-    """
+    """Return whether replacing managed lists with `needed` stays within the limit."""
     managed = len(filter_by_prefix(cf_lists, AD_PREFIX))
     others = len(cf_lists) - managed
     return needed + others <= MAX_LISTS
@@ -96,8 +91,8 @@ def delete_items(
 ) -> None:
     """Delete the given lists or rules (`kind` is "lists" or "rules")."""
     for item in items:
-        _request(session, "DELETE", f"{base_url}/{kind}/{item['id']}")
-        logger.debug("Deleted %s: %s", kind.removesuffix("s"), highlight(item["name"]))
+        request(session, "DELETE", f"{base_url}/{kind}/{item['id']}")
+        logger.debug(f"Deleted {kind.removesuffix('s')}: {highlight(item['name'])}")
 
 
 def save_list(
@@ -108,22 +103,20 @@ def save_list(
     list_id: str | None = None,
 ) -> str:
     """Update `list_id` if given, else create a DOMAIN list."""
-    logger.debug(
-        "Saving list: %s (%s domains)", highlight(name), highlight(len(domains))
-    )
+    logger.debug(f"Saving list: {highlight(name)} ({highlight(len(domains))} domains)")
 
     payload = {
         "name": name,
         "description": DESCRIPTION,
-        "items": [{"value": d} for d in domains],
+        "items": [{"value": domain} for domain in domains],
     }
 
     if list_id:
-        _request(session, "PUT", f"{base_url}/lists/{list_id}", payload)
+        request(session, "PUT", f"{base_url}/lists/{list_id}", payload)
         return list_id
 
     payload["type"] = "DOMAIN"
-    body = _request(session, "POST", f"{base_url}/lists", payload)
+    body = request(session, "POST", f"{base_url}/lists", payload)
     return body["result"]["id"]
 
 
@@ -149,7 +142,6 @@ def ensure_policy(
     cf_policies = get_items(session, base_url, "rules")
     policies = filter_by_prefix(cf_policies, name)
 
-    # Nothing to do if the single existing policy is already correct.
     if traffic and len(policies) == 1:
         policy = policies[0]
         settings = policy.get("rule_settings") or {}
@@ -158,10 +150,9 @@ def ensure_policy(
             and policy.get("enabled", True)
             and bool(settings.get("block_page_enabled")) == block_page
         ):
-            logger.info("Policy unchanged — skipping: %s", highlight(name))
+            logger.info(f"Policy unchanged — skipping: {highlight(name)}")
             return
 
-    # Otherwise remove the old policies and, if wanted, create a fresh one.
     delete_items(session, base_url, "rules", policies)
 
     if traffic:
@@ -174,8 +165,8 @@ def ensure_policy(
             "traffic": traffic,
             "rule_settings": {"block_page_enabled": block_page},
         }
-        _request(session, "POST", f"{base_url}/rules", payload)
-        logger.info("Created policy: %s", highlight(name))
+        request(session, "POST", f"{base_url}/rules", payload)
+        logger.info(f"Created policy: {highlight(name)}")
 
 
 def sync_lists(
@@ -185,23 +176,23 @@ def sync_lists(
     cf_lists: list[JsonDict],
 ) -> None:
     """Make Cloudflare hold exactly one list per chunk, plus one policy."""
-    cf_by_name = {l["name"]: l for l in filter_by_prefix(cf_lists, AD_PREFIX)}
+    cf_by_name = {item["name"]: item for item in filter_by_prefix(cf_lists, AD_PREFIX)}
     names = [f"{AD_PREFIX} {i}" for i in range(1, len(chunks) + 1)]
 
-    surplus = [l for name, l in cf_by_name.items() if name not in names]
+    surplus = [item for name, item in cf_by_name.items() if name not in names]
     if surplus:
-        # Drop the policy first so it never references a deleted list.
         ensure_policy(session, base_url, AD_PREFIX, None, False)
         delete_items(session, base_url, "lists", surplus)
 
     if chunks:
-        logger.info("Creating/updating %s lists, please wait", highlight(len(chunks)))
+        logger.info(f"Creating/updating {highlight(len(chunks))} lists, please wait")
 
     list_ids = []
     for name, domains in zip(names, chunks):
-        cf_list = cf_by_name.get(name)
-        list_id = cf_list["id"] if cf_list else None
-        list_ids.append(save_list(session, base_url, name, domains, list_id))
+        current = cf_by_name.get(name)
+        list_ids.append(
+            save_list(session, base_url, name, domains, current["id"] if current else None)
+        )
 
     traffic = build_list_traffic(list_ids) if list_ids else None
     ensure_policy(session, base_url, AD_PREFIX, traffic, False)
