@@ -1,11 +1,8 @@
 import logging
-from typing import Any
 
 import requests
 
 from logger import highlight
-
-JsonDict = dict[str, Any]
 
 API_URL = "https://api.cloudflare.com/client/v4"
 DESCRIPTION = "Created by CFPiHole."
@@ -25,24 +22,12 @@ class CloudflareAPIError(Exception):
     pass
 
 
-def create_session(token: str) -> requests.Session:
-    """Return a session that authenticates every request with `token`."""
-    session = requests.Session()
-    session.headers["Authorization"] = f"Bearer {token}"
-    return session
-
-
-def build_base_url(account_id: str) -> str:
-    """Return the Gateway API base URL for an account."""
-    return f"{API_URL}/accounts/{account_id}/gateway"
-
-
 def request(
     session: requests.Session,
     method: str,
     url: str,
-    payload: JsonDict | None = None,
-) -> JsonDict:
+    payload: dict[str, object] | None = None,
+) -> dict[str, object]:
     """Send a request and return the decoded JSON body, or raise on failure."""
     try:
         response = session.request(method, url, json=payload, timeout=TIMEOUT)
@@ -58,7 +43,7 @@ def request(
     return body
 
 
-def get_items(session: requests.Session, base_url: str, kind: str) -> list[JsonDict]:
+def get_items(session: requests.Session, base_url: str, kind: str) -> list[dict[str, object]]:
     """Return every Gateway item of a kind ("lists" or "rules")."""
     body = request(session, "GET", f"{base_url}/{kind}")
     items = body.get("result") or []
@@ -71,14 +56,13 @@ def get_items(session: requests.Session, base_url: str, kind: str) -> list[JsonD
     return items
 
 
-def filter_by_prefix(items: list[JsonDict], prefix: str) -> list[JsonDict]:
-    """Return the items whose name starts with `prefix`."""
-    return [item for item in items if item.get("name", "").startswith(prefix)]
-
-
-def check_list_limit(cf_lists: list[JsonDict], needed: int) -> bool:
+def check_list_limit(cf_lists: list[dict[str, object]], needed: int) -> bool:
     """Return whether replacing managed lists with `needed` stays within the limit."""
-    managed = len(filter_by_prefix(cf_lists, AD_PREFIX))
+    managed = sum(
+        1
+        for item in cf_lists
+        if isinstance(item.get("name"), str) and item["name"].startswith(AD_PREFIX)
+    )
     others = len(cf_lists) - managed
     return needed + others <= MAX_LISTS
 
@@ -87,9 +71,9 @@ def delete_items(
     session: requests.Session,
     base_url: str,
     kind: str,
-    items: list[JsonDict],
+    items: list[dict[str, object]],
 ) -> None:
-    """Delete the given lists or rules (`kind` is "lists" or "rules")."""
+    """Delete the given lists or rules ("kind" is "lists" or "rules")."""
     for item in items:
         request(session, "DELETE", f"{base_url}/{kind}/{item['id']}")
         logger.debug(f"Deleted {kind.removesuffix('s')}: {highlight(item['name'])}")
@@ -105,7 +89,7 @@ def save_list(
     """Update `list_id` if given, else create a DOMAIN list."""
     logger.debug(f"Saving list: {highlight(name)} ({highlight(len(domains))} domains)")
 
-    payload = {
+    payload: dict[str, object] = {
         "name": name,
         "description": DESCRIPTION,
         "items": [{"value": domain} for domain in domains],
@@ -139,8 +123,11 @@ def ensure_policy(
     block_page: bool,
 ) -> None:
     """Make exactly one policy `name` with `traffic` exist."""
-    cf_policies = get_items(session, base_url, "rules")
-    policies = filter_by_prefix(cf_policies, name)
+    policies = [
+        item
+        for item in get_items(session, base_url, "rules")
+        if isinstance(item.get("name"), str) and item["name"].startswith(name)
+    ]
 
     if traffic and len(policies) == 1:
         policy = policies[0]
@@ -156,7 +143,7 @@ def ensure_policy(
     delete_items(session, base_url, "rules", policies)
 
     if traffic:
-        payload = {
+        payload: dict[str, object] = {
             "name": name,
             "description": DESCRIPTION,
             "action": "block",
@@ -173,10 +160,14 @@ def sync_lists(
     session: requests.Session,
     base_url: str,
     chunks: list[list[str]],
-    cf_lists: list[JsonDict],
+    cf_lists: list[dict[str, object]],
 ) -> None:
     """Make Cloudflare hold exactly one list per chunk, plus one policy."""
-    cf_by_name = {item["name"]: item for item in filter_by_prefix(cf_lists, AD_PREFIX)}
+    cf_by_name = {
+        item["name"]: item
+        for item in cf_lists
+        if isinstance(item.get("name"), str) and item["name"].startswith(AD_PREFIX)
+    }
     names = [f"{AD_PREFIX} {i}" for i in range(1, len(chunks) + 1)]
 
     surplus = [item for name, item in cf_by_name.items() if name not in names]
