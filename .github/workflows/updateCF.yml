@@ -1,12 +1,11 @@
-# This workflow will install Python dependencies and run the update with simple fixed-delay retries in the same job
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-python
-
-name: Python application (Cloudflare)
+name: Update Cloudflare
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 12 * * 3,6'
+    # Wed & Sat, 12:17 UTC. Off the top of the hour: :00 slots are the most
+    # congested and scheduled runs there are often delayed or dropped.
+    - cron: '17 12 * * 3,6'
 
 permissions:
   contents: read
@@ -15,87 +14,64 @@ concurrency:
   group: ${{ github.workflow }}
   cancel-in-progress: false
 
+env:
+  PYTHON_VERSION: "3.14"
+  POETRY_VERSION: "2.2.1"   # set to the version you use locally
+
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  update:
+    runs-on: ubuntu-24.04   # pinned so a runner-image switch can't surprise you
     timeout-minutes: 30
     steps:
-    - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false   # nothing here pushes; don't leave the token on disk
 
-    - name: Set up Python 3.14
-      uses: actions/setup-python@v7
-      with:
-        python-version: "3.14"
+      # Poetry must exist before setup-python so `cache: poetry` can find it.
+      - name: Install Poetry (pinned)
+        run: pipx install "poetry==${POETRY_VERSION}"
 
-    - name: Cache Poetry virtualenv and caches
-      uses: actions/cache@v6
-      with:
-        path: |
-          .venv
-          ~/.cache/pypoetry
-          ~/.cache/pip
-        key: ${{ runner.os }}-poetry-3.14-${{ hashFiles('**/poetry.lock', '**/pyproject.toml') }}
-        restore-keys: |
-          ${{ runner.os }}-poetry-3.14-
-          ${{ runner.os }}-poetry-
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: poetry   # keyed on poetry.lock + Python version; replaces both actions/cache steps
 
-    - name: Cache Poetry installation
-      id: cache-poetry
-      uses: actions/cache@v6
-      with:
-        path: |
-          ~/.local/share/pypoetry
-          ~/.local/bin/poetry
-        key: ${{ runner.os }}-poetry-install-3.14
+      - name: Install dependencies
+        run: poetry install --no-interaction --no-ansi --without dev --sync
 
-    - name: Install Poetry
-      if: steps.cache-poetry.outputs.cache-hit != 'true'
-      run: |
-        curl -sSL https://install.python-poetry.org | python3 -
-    - name: Configure Poetry on PATH
-      run: echo "$HOME/.local/bin" >> $GITHUB_PATH
+      - name: Run update (retry on rate limit)
+        env:
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CF_IDENTIFIER: ${{ secrets.CF_IDENTIFIER }}
+          PYTHONUNBUFFERED: "1"        # stream logs live instead of at exit
+          MAX_ATTEMPTS: 3              # total attempts (1 initial + retries)
+          BASE_DELAY_SECONDS: 300      # 5 min, then 10 min (linear backoff)
+        run: |
+          RATE_LIMIT_EXIT=64
 
-    - name: Install dependencies with Poetry
-      run: |
-        # Ensure Poetry creates an in-project virtualenv at .venv
-        poetry config virtualenvs.in-project true --local
+          for attempt in $(seq 1 "$MAX_ATTEMPTS"); do
+            echo "Attempt ${attempt}/${MAX_ATTEMPTS}: running update..."
 
-        # Install without dev deps; --sync keeps .venv matching the lockfile exactly,
-        # removing anything that's fallen out of poetry.lock (important since .venv is cached)
-        poetry install --no-interaction --no-ansi --without dev --sync
+            code=0
+            poetry run python main.py || code=$?
 
-    - name: Run update (with retries)
-      env:
-        CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-        CF_IDENTIFIER: ${{ secrets.CF_IDENTIFIER }}
-        MAX_ATTEMPTS: 3      # total attempts (1 initial + retries)
-        DELAY_SECONDS: 300   # fixed 5-minute wait between attempts
-      run: |
-        # Run update (with retries)
-        max_attempts="$MAX_ATTEMPTS"
-        delay_seconds="$DELAY_SECONDS"
-        delay_minutes=$(( delay_seconds / 60 )) # convert to minutes
+            if [ "$code" -eq 0 ]; then
+              echo "Update succeeded on attempt ${attempt}."
+              exit 0
+            fi
 
-        attempt=1
-        while true; do
-          echo "Attempt $attempt of $max_attempts: running update..."
+            if [ "$code" -ne "$RATE_LIMIT_EXIT" ]; then
+              echo "::error::Update failed with exit code ${code} (not retryable)."
+              exit "$code"
+            fi
 
-          set +e
-          poetry run python main.py
-          exit_code=$?
-          set -e
+            if [ "$attempt" -lt "$MAX_ATTEMPTS" ]; then
+              delay=$(( BASE_DELAY_SECONDS * attempt ))
+              echo "::warning::Rate limited (exit ${RATE_LIMIT_EXIT}). Retrying in $(( delay / 60 )) min..."
+              sleep "$delay"
+            fi
+          done
 
-          if [ $exit_code -eq 0 ]; then
-            echo "Update succeeded on attempt $attempt."
-            break
-          fi
-
-          if [ $exit_code -eq 64 ] && [ "$attempt" -lt "$max_attempts" ]; then
-            echo "Rate limit (64) detected. Sleeping ${delay_minutes} min before retry..."
-            sleep "${delay_seconds}"  
-            attempt=$(( attempt + 1 ))
-          else
-            echo "Update failed with exit code $exit_code (or max retries reached)."
-            exit 1
-          fi
-        done
+          echo "::error::Still rate limited after ${MAX_ATTEMPTS} attempts."
+          exit "$RATE_LIMIT_EXIT"
